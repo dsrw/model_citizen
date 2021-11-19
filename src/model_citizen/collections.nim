@@ -4,21 +4,21 @@ type
   TrackedSet*[T] = object
     tracked: set[T]
     changed_callback_gid: int
-    changed_callbacks: Table[int, SetCallback[T]]
+    changed_callbacks: Table[int, ChangeCallback[T]]
 
   TrackedSeq*[T] = object
     tracked: seq[T]
     changed_callback_gid: int
-    changed_callbacks: Table[int, SeqCallback[T]]
+    changed_callbacks: Table[int, ChangeCallback[T]]
 
   Tracked*[T] = TrackedSet[T] | TrackedSeq[T]
   Trackable*[T] = set[T] | seq[T]
+  ChangeKind* = enum
+    Added, Removed, Modified
 
-  SetCallback*[T] =
-    proc(added: set[T], removed: set[T])
+  Change*[T] = tuple[obj: T, kind: ChangeKind]
 
-  SeqCallback*[T] =
-    proc(added: seq[T], removed: seq[T])
+  ChangeCallback*[T] = proc(changes: seq[Change[T]])
 
 proc contains*[T](self: Tracked[T], flag: T): bool =
   flag in self.tracked
@@ -38,10 +38,12 @@ template mutate(body) =
   let initial_values = self.tracked.dup
   body
   if self.tracked != initial_values:
-    let added = self.tracked - initial_values
-    let removed = initial_values - self.tracked
+    let
+      added = (self.tracked - initial_values).map_it (it, Added)
+      removed = (initial_values - self.tracked).map_it (it, Removed)
+      changes = added & removed
     for _, callback in self.changed_callbacks:
-      callback(added, removed)
+      callback(changes)
 
 proc change[T](self: var Tracked[T], items: Trackable[T], add: bool) =
   mutate:
@@ -113,12 +115,7 @@ proc init*[T](t: typedesc[TrackedSeq], flags: seq[T]): TrackedSeq[T] =
 proc init*(s: typedesc[TrackedSet], T: typedesc[enum]): TrackedSet[T] =
   result = TrackedSet[T]()
 
-proc track*[T](self: var Tracked[T], callback: SetCallback[T]): int {.discardable.} =
-  inc self.changed_callback_gid
-  result = self.changed_callback_gid
-  self.changed_callbacks[result] = callback
-
-proc track*[T](self: var Tracked[T], callback: SeqCallback[T]): int {.discardable.} =
+proc track*[T](self: var Tracked[T], callback: ChangeCallback[T]): int {.discardable.} =
   inc self.changed_callback_gid
   result = self.changed_callback_gid
   self.changed_callbacks[result] = callback
@@ -152,9 +149,12 @@ when is_main_module:
     var added: set[TestFlags]
     var removed: set[TestFlags]
 
-    let gid = s.track proc(added_flags, removed_flags: set[TestFlags]) =
-      added = added_flags
-      removed = removed_flags
+    let gid = s.track proc(changes: seq[Change[TestFlags]]) =
+      added = {}
+      removed = {}
+      for c in changes:
+        if c.kind == Added: added.incl(c.obj)
+        elif c.kind == Removed: removed.incl(c.obj)
 
     s += Flag3
     check:
@@ -175,9 +175,12 @@ when is_main_module:
 
     var also_added: set[TestFlags]
     var also_removed: set[TestFlags]
-    s.track proc(change_added: set[TestFlags], change_removed: set[TestFlags]) =
-      also_added = change_added
-      also_removed = change_removed
+    s.track proc(changes: seq[Change[TestFlags]]) =
+      also_added = {}
+      also_removed = {}
+      for c in changes:
+        if c.kind == Added: also_added.incl(c.obj)
+        elif c.kind == Removed: also_removed.incl(c.obj)
 
     s.untrack(gid)
     s.set = {Flag2, Flag3}
@@ -195,9 +198,9 @@ when is_main_module:
       s = TrackedSeq.init(string)
       added_items, removed_items: seq[string]
 
-    s.track proc(added: seq[string], removed: seq[string]) =
-      added_items.add added
-      removed_items.add removed
+    s.track proc(changes: seq[Change[string]]) =
+      added_items.add changes.filter_it(it.kind == Added).map_it it.obj
+      removed_items.add changes.filter_it(it.kind == Removed).map_it it.obj
     s.add "hello"
     s.add "world"
 
