@@ -1,29 +1,38 @@
-import std / [tables, sequtils, sugar, macros]
+import std / [tables, sequtils, sugar, macros, genasts]
+import print
 
 type
-  TrackedSet*[T] = object
+  ZenSet*[T] = object
     tracked: set[T]
     changed_callback_gid: int
     changed_callbacks: Table[int, ChangeCallback[T]]
 
-  TrackedSeq*[T] = object
+  ZenSeq*[T] = object
     tracked: seq[T]
     changed_callback_gid: int
     changed_callbacks: Table[int, ChangeCallback[T]]
 
-  Tracked*[T] = TrackedSet[T] | TrackedSeq[T]
-  Trackable*[T] = set[T] | seq[T]
+  Pair*[K, V] = tuple[key: K, value: V]
+
+  ZenTable*[K, V] = object
+    tracked: Table[K, V]
+    changed_callback_gid: int
+    use_default: bool
+    changed_callbacks: Table[int, ChangeCallback[Pair[K, V]]]
+
   ChangeKind* = enum
     Added, Removed, Modified
-
   Change*[T] = tuple[obj: T, kind: ChangeKind]
-
   ChangeCallback*[T] = proc(changes: seq[Change[T]])
 
-proc contains*[T](self: Tracked[T], flag: T): bool =
+  List[T] = set[T] | seq[T]
+  ZenList[T] = ZenSet[T] | ZenSeq[T]
+  Zen = ZenSet | ZenSeq | ZenTable
+
+proc contains*[T](self: ZenList[T], flag: T): bool =
   flag in self.tracked
 
-proc contains*[T](self: TrackedSet[T], flags: set[T]): bool =
+proc contains*[T](self: ZenSet[T], flags: set[T]): bool =
   result = true
   for flag in flags:
     if flag notin self:
@@ -34,96 +43,137 @@ proc `-`[T](a, b: seq[T]): seq[T] = a.filter proc(it: T): bool =
 
 template `&`[T](a, b: set[T]): set[T] = a + b
 
+proc changes[T](self: ZenList[T], initial: List[T]): seq[Change[T]] =
+  let added = (self.tracked - initial).map_it (it, Added)
+  let removed = (initial - self.tracked).map_it (it, Removed)
+  result = added & removed
+
+proc changes[K, V](self: ZenTable[K, V], initial: Table[K, V]): seq[Change[Pair[K, V]]] =
+  let
+    tracked = self.tracked.pairs.to_seq
+    initial = initial.pairs.to_seq
+    added = (tracked - initial).map_it (it, Added)
+    removed = (initial - tracked).map_it (it, Removed)
+  result = added & removed
+
 template mutate(body) =
   let initial_values = self.tracked.dup
   body
   if self.tracked != initial_values:
-    let
-      added = (self.tracked - initial_values).map_it (it, Added)
-      removed = (initial_values - self.tracked).map_it (it, Removed)
-      changes = added & removed
+    let changes = self.changes(initial_values)
     for _, callback in self.changed_callbacks:
       callback(changes)
 
-proc change[T](self: var Tracked[T], items: Trackable[T], add: bool) =
+proc change[T](self: var ZenList[T], items: List[T], add: bool) =
   mutate:
     if add:
       self.tracked = self.tracked & items
     else:
       self.tracked = self.tracked - items
 
-proc clear*[T](self: var TrackedSeq[T]) =
+proc clear*(self: var Zen) =
   mutate:
-    self.tracked = @[]
+    self.tracked = self.tracked.type.default
 
-proc clear*[T](self: var TrackedSet[T]) =
-  mutate:
-    self.tracked = {}
-
-proc `set=`*[T](self: var Tracked[T], flags: Trackable[T]) =
+proc `set=`*[T](self: var ZenList[T], flags: List[T]) =
   mutate:
     self.tracked = flags
 
-proc `[]`*[T](self: TrackedSeq[T], index: Ordinal): T = self.set[index]
+proc mget*[K, V](self: var ZenTable[K, V], index: K): var V =
+  if index in self.tracked or not self.use_default:
+    result = self.tracked[index]
+  else:
+    mutate:
+      self.tracked[index] = V.default
+    result = self.tracked[index]
 
-proc `[]=`*[T](self: var TrackedSeq[T], index: SomeOrdinal, value: T) =
+proc get*[K, V](self: var ZenTable[K, V], index: K): V =
+  result = self.tracked[index]
+
+template `[]`*[K, V](self: var ZenTable[K, V], index: K): untyped =
+  when V is Zen:
+    self.mget(index)
+  else:
+    self.get(index)
+
+proc `[]=`*[K, V](self: var ZenTable[K, V], index: K, value: V) =
   mutate:
     self.tracked[index] = value
 
-proc add*[T](self: var TrackedSeq[T], value: T) =
+proc `[]`*[T](self: ZenSeq[T], index: Ordinal): T = self.tracked[index]
+
+proc `[]=`*[T](self: var ZenSeq[T], index: SomeOrdinal, value: T) =
+  mutate:
+    self.tracked[index] = value
+
+proc add*[T](self: var ZenSeq[T], value: T) =
   mutate:
     self.tracked.add value
 
-proc set*[T](self: TrackedSet[T]): set[T] = self.tracked
-proc set*[T](self: TrackedSeq[T]): seq[T] = self.tracked
+proc set*[T](self: ZenSet[T]): set[T] = self.tracked
+proc set*[T](self: ZenSeq[T]): seq[T] = self.tracked
 
-proc `+=`*[T](self: var TrackedSet[T], flag: T) =
+proc `+=`*[T](self: var ZenSet[T], flag: T) =
   self.change({flag}, true)
 
-proc `+=`*[T](self: var TrackedSet[T], flags: set[T]) =
+proc `+=`*[T](self: var ZenSet[T], flags: set[T]) =
   self.change(flags, true)
 
-proc `-=`*[T](self: var TrackedSet[T], flag: T) =
+proc `-=`*[T](self: var ZenSet[T], flag: T) =
   self.change({flag}, false)
 
-proc `-=`*[T](self: var TrackedSet[T], flags: set[T]) =
+proc `-=`*[T](self: var ZenSet[T], flags: set[T]) =
   self.change(flags, false)
 
-proc `+=`*[T](self: var TrackedSeq[T], flag: T) =
+proc `+=`*[T](self: var ZenSeq[T], flag: T) =
   self.change(@[flag], true)
 
-proc `+=`*[T](self: var TrackedSet[T], flags: seq[T]) =
+proc `+=`*[T](self: var ZenSet[T], flags: seq[T]) =
   self.change(flags, true)
 
-proc `-=`*[T](self: var TrackedSeq[T], flag: T) =
+proc `-=`*[T](self: var ZenSeq[T], flag: T) =
   self.change(@[flag], false)
 
-proc `-=`*[T](self: var TrackedSet[T], flags: seq[T]) =
+proc `-=`*[T](self: var ZenSet[T], flags: seq[T]) =
   self.change(flags, false)
 
-proc init*[T](t: typedesc[TrackedSet], flags: set[T]): TrackedSet[T] =
-  result = TrackedSet[T]()
+proc init*[T](t: typedesc[ZenSet], flags: set[T]): ZenSet[T] =
+  result = ZenSet[T]()
   result.tracked = flags
 
-proc init*(s: typedesc[TrackedSeq], T: typedesc): TrackedSeq[T] =
-  result = TrackedSeq[T]()
+proc init*(s: typedesc[ZenSeq], T: typedesc): ZenSeq[T] =
+  result = ZenSeq[T]()
 
-proc init*[T](t: typedesc[TrackedSeq], flags: seq[T]): TrackedSeq[T] =
-  result = TrackedSeq[T]()
+proc init*[T](t: typedesc[ZenSeq], flags: seq[T]): ZenSeq[T] =
+  result = ZenSeq[T]()
   result.tracked = flags
 
-proc init*(s: typedesc[TrackedSet], T: typedesc[enum]): TrackedSet[T] =
-  result = TrackedSet[T]()
+proc init*(t: typedesc[ZenTable], K, V: typedesc): ZenTable[K, V] =
+  result = ZenTable[K, V]()
 
-proc track*[T](self: var Tracked[T], callback: ChangeCallback[T]): int {.discardable.} =
+proc init_tree*(t: typedesc[ZenTable], K, V: typedesc): ZenTable[K, V] =
+  when V is Zen:
+    result = ZenTable[K, V](use_default: true)
+  else:
+    {.error: "Value type must be Zen".}
+
+proc init*(s: typedesc[ZenSet], T: typedesc[enum]): ZenSet[T] =
+  result = ZenSet[T]()
+
+proc track*[T](self: var ZenList[T], callback: ChangeCallback[T]): int {.discardable.} =
   inc self.changed_callback_gid
   result = self.changed_callback_gid
   self.changed_callbacks[result] = callback
 
-proc untrack*[T](self: var Tracked[T], gid: int) =
+proc track*[K, V](self: var ZenTable[K, V], callback: ChangeCallback[Pair[K, V]]): int {.discardable.} =
+  inc self.changed_callback_gid
+  result = self.changed_callback_gid
+  self.changed_callbacks[result] = callback
+
+proc untrack*(self: var Zen, gid: int) =
   self.changed_callbacks.del(gid)
 
-iterator items*[T](self: Tracked[T]): T =
+iterator items*[T](self: ZenList[T]): T =
   for item in self.tracked:
     yield item
 
@@ -135,7 +185,7 @@ when is_main_module:
       TestFlags = enum
         Flag1, Flag2, Flag3, Flag4
 
-    var s = TrackedSet.init({Flag1, Flag2})
+    var s = ZenSet.init({Flag1, Flag2})
 
     check:
       Flag1 in s
@@ -195,7 +245,7 @@ when is_main_module:
 
   block seqs:
     var
-      s = TrackedSeq.init(string)
+      s = ZenSeq.init(string)
       added_items, removed_items: seq[string]
 
     s.track proc(changes: seq[Change[string]]) =
@@ -210,3 +260,13 @@ when is_main_module:
     removed_items = @[]
     s.clear()
     check removed_items == @["hello"]
+
+  block tables:
+    var a = ZenTable.init_tree(int, ZenSeq[string])
+    a.track proc(changes: seq[Change[(int, seq[string])]]) =
+      print "changed: ", changes
+    a[1] += "nim"
+    #a[5] = @["vin", "rw"]
+    print a
+    a.clear
+    print a
