@@ -26,7 +26,7 @@ type
   ZenList[T] = ZenSet[T] | ZenSeq[T]
   Zen = ZenSet | ZenSeq | ZenTable
 
-  Pair[K, V] = tuple[key: K, value: V]
+  Pair*[K, V] = tuple[key: K, value: V]
 
 proc contains*[T](self: ZenList[T], flag: T): bool =
   flag in self.tracked
@@ -51,6 +51,21 @@ proc trigger_callbacks[T](self: Zen, changes: seq[Change[T]]) =
   for _, callback in self.changed_callbacks:
     callback(changes)
 
+proc link_child[K, V](self: ZenTable[K, V], pair: Pair[K, V]) =
+  if not pair.value.is_nil:
+    pair.value.track proc(changes: auto) =
+      let change = (obj: (pair.key, pair.value), kinds: {Modified})
+      self.trigger_callbacks(@[change])
+
+proc link_child[T](self: ZenSeq[T], child: T) =
+  if not child.is_nil:
+    child.track proc(changes: auto) =
+      let change = (obj: child, kinds: {Modified})
+      self.trigger_callbacks(@[change])
+
+proc unlink(self: Zen) =
+  self.changed_callbacks.clear
+
 proc process_changes[T](self: ZenList[T], initial: List[T]) =
   if self.tracked != initial:
     let added = (self.tracked - initial).map_it (obj: it, kinds: {Added})
@@ -62,7 +77,8 @@ proc process_changes[T](self: ZenList[T], initial: List[T]) =
       for change in added:
         self.link_child(change.obj)
       for change in removed:
-        change.obj.unlink
+        if not change.obj.is_nil:
+          change.obj.unlink
 
 proc process_changes[K, V](self: ZenTable[K, V], initial_table: Table[K, V]) =
   if self.tracked != initial_table:
@@ -86,7 +102,8 @@ proc process_changes[K, V](self: ZenTable[K, V], initial_table: Table[K, V]) =
       for change in added:
         self.link_child(change.obj)
       for change in removed:
-        change.obj.value.unlink
+        if not change.obj.value.is_nil:
+          change.obj.value.unlink
 
 template mutate(body) =
   when compiles(self.tracked[]):
@@ -110,22 +127,6 @@ proc clear*(self: Zen) =
 proc `set=`*[T](self: ZenList[T], flags: List[T]) =
   mutate:
     self.tracked = flags
-
-proc link_child[K, V](self: ZenTable[K, V], pair: Pair[K, V]) =
-  if not pair.value.is_nil:
-    pair.value.track proc(changes: auto) =
-      let change = (obj: (pair.key, pair.value), kinds: {Modified})
-      self.trigger_callbacks(@[change])
-
-proc link_child[T](self: ZenSeq[T], child: T) =
-  if not child.is_nil:
-    child.track proc(changes: auto) =
-      let change = (obj: child, kinds: {Modified})
-      self.trigger_callbacks(@[change])
-
-proc unlink(self: Zen) =
-  # Do we need to clear callbacks for GC?
-  discard
 
 proc `[]`*[K, V](self: ZenTable[K, V], index: K): V =
   when result is Zen:
@@ -216,6 +217,9 @@ proc init*[T](t: typedesc[ZenSeq], tracked: open_array[T]): ZenSeq[T] =
 proc init*(t: typedesc[ZenTable], K, V: typedesc): ZenTable[K, V] =
   result = ZenTable[K, V]()
 
+proc init*[K, V](t: typedesc[ZenTable[K, V]]): ZenTable[K, V] =
+  result = ZenTable[K, V]()
+
 proc init*[K, V](t: typedesc[ZenTable], tracked: Table[K, V]): ZenTable[K, V] =
   var self = ZenTable[K, V]()
   mutate:
@@ -235,7 +239,7 @@ macro `%`*(body: untyped): untyped =
   of nnkBracket: "ZenSeq"
   else:
     error("Invalid Zen literal", body)
-    "" # Unreachable
+    return # Unreachable
 
   gen_ast(typ = ident(typ), body):
     typ.init(body)
