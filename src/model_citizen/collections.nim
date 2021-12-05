@@ -48,7 +48,7 @@ template `&`[T](a, b: set[T]): set[T] = a + b
 proc len(self: Zen): int = self.tracked.len
 
 proc trigger_callbacks[T](self: Zen, changes: seq[Change[T]]) =
-  for _, callback in self.changed_callbacks:
+  for _, callback in self.changed_callbacks.pairs:
     callback(changes)
 
 proc link_child[K, V](self: ZenTable[K, V], pair: Pair[K, V]) =
@@ -186,15 +186,15 @@ proc del*[T](self: ZenSeq[T], index: SomeOrdinal) =
   mutate:
     self.tracked.del(index)
 
-proc delete*[T](self: ZenSeq[T], index: SomeOrdinal) =
-  mutate:
-    self.tracked.delete(index)
-
 proc del*[T](self: ZenSeq[T], index: T) =
   let index = self.find(index)
   if index > -1:
     mutate:
       self.tracked.del(index)
+
+proc delete*[T](self: ZenSeq[T], index: SomeOrdinal) =
+  mutate:
+    self.tracked.delete(index)
 
 proc delete*[T](self: ZenSeq[T], index: T) =
   let index = self.find(index)
@@ -217,8 +217,8 @@ proc init*[T](t: typedesc[ZenSeq], tracked: open_array[T]): ZenSeq[T] =
 proc init*(t: typedesc[ZenTable], K, V: typedesc): ZenTable[K, V] =
   result = ZenTable[K, V]()
 
-proc init*[K, V](t: typedesc[ZenTable[K, V]]): ZenTable[K, V] =
-  result = ZenTable[K, V]()
+proc init*[T: ZenTable](t: typedesc[T]): T =
+  result = T()
 
 proc init*[K, V](t: typedesc[ZenTable], tracked: Table[K, V]): ZenTable[K, V] =
   var self = ZenTable[K, V]()
@@ -231,6 +231,15 @@ proc init*[K, V](t: typedesc[ZenTable], tracked: open_array[(K, V)]): ZenTable[K
 
 proc init*(s: typedesc[ZenSet], T: typedesc[enum]): ZenSet[T] =
   result = ZenSet[T]()
+
+proc default*[T](_: typedesc[ZenSet[T]]): ZenSet[T] =
+  ZenSet[T].init
+
+proc default*[T](_: typedesc[ZenSeq[T]]): ZenSeq[T] =
+  ZenSeq.init(T)
+
+proc default*[K, V](_: typedesc[ZenTable[K, V]]): ZenTable[K, V] =
+  ZenTable[K, V].init
 
 macro `%`*(body: untyped): untyped =
   let typ = case body.kind
@@ -257,8 +266,11 @@ proc track*[K, V](self: ZenTable[K, V], callback: proc(changes: seq[Change[Pair[
 proc untrack*(self: Zen, gid: int) =
   self.changed_callbacks.del(gid)
 
+proc untrack_all*(self: Zen) =
+  self.changed_callbacks.clear
+
 iterator items*[T](self: ZenList[T]): T =
-  for item in self.tracked:
+  for item in self.tracked.items:
     yield item
 
 when is_main_module:
@@ -424,3 +436,6 @@ when is_main_module:
     buffers.count_changes
     1.changes: buffers.del(1)
     check 1 notin buffers
+
+  block:
+    var a = ZenTable[int, int].init
