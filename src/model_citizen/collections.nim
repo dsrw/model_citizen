@@ -10,17 +10,17 @@ type
   ZenSet*[T] = ref object
     tracked: set[T]
     changed_callback_gid: int
-    changed_callbacks: Table[int, proc(changes: seq[Change[T]])]
+    changed_callbacks: Table[int, proc(changes: seq[Change[T]], gid: int)]
 
   ZenSeq*[T] = ref object
     tracked: seq[T]
     changed_callback_gid: int
-    changed_callbacks: Table[int, proc(changes: seq[Change[T]])]
+    changed_callbacks: Table[int, proc(changes: seq[Change[T]], gid: int)]
 
   ZenTable*[K, V] = ref object
     tracked: Table[K, V]
     changed_callback_gid: int
-    changed_callbacks: Table[int, proc(changes: seq[Change[Pair[K, V]]])]
+    changed_callbacks: Table[int, proc(changes: seq[Change[Pair[K, V]]], gid: int)]
 
   List[T] = set[T] | seq[T]
   ZenList[T] = ZenSet[T] | ZenSeq[T]
@@ -48,18 +48,19 @@ template `&`[T](a, b: set[T]): set[T] = a + b
 proc len(self: Zen): int = self.tracked.len
 
 proc trigger_callbacks[T](self: Zen, changes: seq[Change[T]]) =
-  for _, callback in self.changed_callbacks.pairs:
-    callback(changes)
+  let callbacks = self.changed_callbacks.dup
+  for gid, callback in callbacks.pairs:
+    callback(changes, gid)
 
 proc link_child[K, V](self: ZenTable[K, V], pair: Pair[K, V]) =
   if not pair.value.is_nil:
-    pair.value.track proc(changes: auto) =
+    pair.value.track proc(changes, _: auto) =
       let change = (obj: (pair.key, pair.value), kinds: {Modified})
       self.trigger_callbacks(@[change])
 
 proc link_child[T](self: ZenSeq[T], child: T) =
   if not child.is_nil:
-    child.track proc(changes: auto) =
+    child.track proc(changes, _: auto) =
       let change = (obj: child, kinds: {Modified})
       self.trigger_callbacks(@[change])
 
@@ -253,15 +254,22 @@ macro `%`*(body: untyped): untyped =
   gen_ast(typ = ident(typ), body):
     typ.init(body)
 
-proc track*[T](self: ZenList[T], callback: proc(changes: seq[Change[T]])): int {.discardable.} =
+proc register_callback(self, callback: auto): int =
   inc self.changed_callback_gid
   result = self.changed_callback_gid
   self.changed_callbacks[result] = callback
 
+proc track*[T](self: ZenList[T], callback: proc(changes: seq[Change[T]], gid: int)): int {.discardable.} =
+  register_callback(self, callback)
+
+proc track*[T](self: ZenList[T], callback: proc(changes: seq[Change[T]])): int {.discardable.} =
+  self.track proc(changes, _: auto) = callback(changes)
+
+proc track*[K, V](self: ZenTable[K, V], callback: proc(changes: seq[Change[Pair[K, V]]], gid: int)): int {.discardable.} =
+  register_callback(self, callback)
+
 proc track*[K, V](self: ZenTable[K, V], callback: proc(changes: seq[Change[Pair[K, V]]])): int {.discardable.} =
-  inc self.changed_callback_gid
-  result = self.changed_callback_gid
-  self.changed_callbacks[result] = callback
+  self.track proc(changes, _: auto) = callback(changes)
 
 proc untrack*(self: Zen, gid: int) =
   self.changed_callbacks.del(gid)
@@ -277,7 +285,7 @@ when is_main_module:
   import unittest
   var change_count = 0
   proc count_changes(obj: auto): int {.discardable.} =
-    obj.track proc(changes:auto) =
+    obj.track proc(changes, _:auto) =
       for change in changes:
         change_count += 1
 
@@ -307,7 +315,7 @@ when is_main_module:
     var added: set[TestFlags]
     var removed: set[TestFlags]
 
-    let gid = s.track proc(changes: auto) =
+    let gid = s.track proc(changes, gid: auto) =
       added = {}
       removed = {}
       for c in changes:
@@ -333,7 +341,7 @@ when is_main_module:
 
     var also_added: set[TestFlags]
     var also_removed: set[TestFlags]
-    s.track proc(changes: auto) =
+    s.track proc(changes, gid: auto) =
       also_added = {}
       also_removed = {}
       for c in changes:
@@ -423,7 +431,7 @@ when is_main_module:
     buffers[1][1][0].untrack(id)
 
     var changed = false
-    id = buffers.track proc(changes: auto) =
+    id = buffers.track proc(changes, _: auto) =
       changed = true
       check changes.len == 2
       check changes[0].kinds == {Added, Modified}
