@@ -9,17 +9,17 @@ type
 
   ZenSet*[T] = ref object
     tracked: set[T]
-    changed_callback_gid: int
+    changed_callback_gid, link_gid: int
     changed_callbacks: Table[int, proc(changes: seq[Change[T]], gid: int)]
 
   ZenSeq*[T] = ref object
     tracked: seq[T]
-    changed_callback_gid: int
+    changed_callback_gid, link_gid: int
     changed_callbacks: Table[int, proc(changes: seq[Change[T]], gid: int)]
 
   ZenTable*[K, V] = ref object
     tracked: Table[K, V]
-    changed_callback_gid: int
+    changed_callback_gid, link_gid: int
     changed_callbacks: Table[int, proc(changes: seq[Change[Pair[K, V]]], gid: int)]
 
   List[T] = set[T] | seq[T]
@@ -54,18 +54,20 @@ proc trigger_callbacks[T](self: Zen, changes: seq[Change[T]]) =
 
 proc link_child[K, V](self: ZenTable[K, V], pair: Pair[K, V]) =
   if not pair.value.is_nil:
-    pair.value.track proc(changes, _: auto) =
+    pair.value.link_gid = pair.value.track proc(changes, _: auto) =
       let change = (obj: (pair.key, pair.value), kinds: {Modified})
       self.trigger_callbacks(@[change])
 
+
 proc link_child[T](self: ZenSeq[T], child: T) =
   if not child.is_nil:
-    child.track proc(changes, _: auto) =
+    child.link_gid = child.track proc(changes, _: auto) =
       let change = (obj: child, kinds: {Modified})
       self.trigger_callbacks(@[change])
 
 proc unlink(self: Zen) =
-  self.changed_callbacks.clear
+  self.untrack(self.link_gid)
+  self.link_gid = 0
 
 proc process_changes[T](self: ZenList[T], initial: List[T]) =
   if self.tracked != initial:
@@ -420,6 +422,15 @@ when is_main_module:
     1.changes: buffers[1][1][0] -= {Flag1, Flag2}
     1.changes: buffers[1][1] += %{Flag1, Flag2}
     1.changes: buffers[1][1] = %[%{Flag1}]
+
+    # unlink
+    buffers[1][1][0].clear
+    let child = buffers[1][1][0]
+    buffers[1][1].del 0
+    0.changes: child += Flag1
+    buffers[1][1] += child
+    1.changes: child += Flag2
+
     2.changes: buffers[1] = nil # Added and Removed changes
     buffers.untrack(id)
 
@@ -428,6 +439,7 @@ when is_main_module:
     1.changes: buffers[1][1][0] += {Flag1, Flag2}
     0.changes: buffers[1][1][0] += {Flag1, Flag2}
     2.changes: buffers[1][1][0] -= {Flag1, Flag2}
+
     buffers[1][1][0].untrack(id)
 
     var changed = false
