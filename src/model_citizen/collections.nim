@@ -5,7 +5,12 @@ type
   ChangeKind* = enum
       Added, Removed, Modified
 
-  Change*[T] = tuple[obj: T, kinds: set[ChangeKind]]
+  BaseChange = ref object of RootRef
+
+  Change*[T] = ref object of BaseChange
+    obj*: T
+    kinds*: set[ChangeKind]
+    triggered_by*: seq[BaseChange]
 
   ZenSet*[T] = ref object
     tracked: set[T]
@@ -47,6 +52,9 @@ template `&`[T](a, b: set[T]): set[T] = a + b
 
 proc len(self: Zen): int = self.tracked.len
 
+proc change[T](obj: T, kinds: set[ChangeKind]): Change[T] =
+  Change[T](obj: obj, kinds: kinds)
+
 proc trigger_callbacks[T](self: Zen, changes: seq[Change[T]]) =
   let callbacks = self.changed_callbacks.dup
   for gid, callback in callbacks.pairs:
@@ -54,15 +62,20 @@ proc trigger_callbacks[T](self: Zen, changes: seq[Change[T]]) =
 
 proc link_child[K, V](self: ZenTable[K, V], pair: Pair[K, V]) =
   if not pair.value.is_nil:
+    var change: Change[Pair[K, V]]
+    var bc: BaseChange
     pair.value.link_gid = pair.value.track proc(changes, _: auto) =
-      let change = (obj: (pair.key, pair.value), kinds: {Modified})
+      change = change((pair.key, pair.value), {Modified})
+      bc = changes[0]
+      #change.triggered_by = changes
       self.trigger_callbacks(@[change])
-
 
 proc link_child[T](self: ZenSeq[T], child: T) =
   if not child.is_nil:
-    child.link_gid = child.track proc(changes, _: auto) =
-      let change = (obj: child, kinds: {Modified})
+    var change: Change[T]
+    child.link_gid = child.track proc(changes: auto) =
+      change = change(child, {Modified})
+      #change.triggered_by = changes
       self.trigger_callbacks(@[change])
 
 proc unlink(self: Zen) =
@@ -71,8 +84,8 @@ proc unlink(self: Zen) =
 
 proc process_changes[T](self: ZenList[T], initial: List[T]) =
   if self.tracked != initial:
-    let added = (self.tracked - initial).map_it (obj: it, kinds: {Added})
-    let removed = (initial - self.tracked).map_it (obj: it, kinds: {Removed})
+    let added = (self.tracked - initial).map_it Change[T](obj: it, kinds: {Added})
+    let removed = (initial - self.tracked).map_it Change[T](obj: it, kinds: {Removed})
 
     self.trigger_callbacks(added & removed)
 
@@ -92,12 +105,12 @@ proc process_changes[K, V](self: ZenTable[K, V], initial_table: Table[K, V]) =
       added = (tracked - initial).map_it:
         var kinds = {Added}
         if it.key in initial_table: kinds.incl Modified
-        (obj: it, kinds: kinds)
+        Change[Pair[K, V]](obj: it, kinds: kinds)
 
       removed = (initial - tracked).map_it:
         var kinds = {Removed}
         if it.key in self.tracked: kinds.incl Modified
-        (obj: it, kinds: kinds)
+        Change[Pair[K, V]](obj: it, kinds: kinds)
 
     self.trigger_callbacks(added & removed)
 
