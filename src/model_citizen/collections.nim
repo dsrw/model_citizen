@@ -48,7 +48,7 @@ proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
 
 proc link_child[K, V](self: ZenTable[K, V], child: Pair[K, V]) =
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
-    child.link_gid = child.track proc(changes: seq[Change[O]], _: int) =
+    child.link_gid = child.track proc(changes: seq[Change[O]]) =
       let change = Change[Pair[K, V]](obj: pair, changes: {Modified})
       self.trigger_callbacks(@[change])
 
@@ -57,7 +57,7 @@ proc link_child[K, V](self: ZenTable[K, V], child: Pair[K, V]) =
 
 proc link_child[T](self: ZenSeq[T], child: T) =
   proc link[S, T, O](self: S, child: Zen[T, O]) =
-    child.link_gid = child.track proc(changes: seq[Change[O]], _: int) =
+    child.link_gid = child.track proc(changes: seq[Change[O]]) =
       let change = Change[Zen[T, O]](obj: child, changes: {Modified})
       self.trigger_callbacks(@[change])
 
