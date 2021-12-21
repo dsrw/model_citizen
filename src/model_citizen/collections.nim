@@ -173,7 +173,7 @@ proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
   when result is Zen:
     if index notin self.tracked:
       mutate:
-        let v = V()
+        let v = V.init
         self.tracked[index] = v
   result = self.tracked[index]
 
@@ -234,6 +234,11 @@ proc `-=`*[T: set, O](self: Zen[T, O], value: O) =
 proc `-=`*[T: seq, O](self: Zen[T, O], value: O) =
   self.change(@[value], false)
 
+proc `==`*(a, b: Zen): bool =
+  (a.is_nil and b.is_nil) or
+    not a.is_nil and not b.is_nil and
+    a.tracked == b.tracked
+
 proc init*(T: type Zen): T = T()
 
 proc init*[O](_: type Zen, tracked: set[O]): Zen[set[O], O] =
@@ -289,6 +294,10 @@ proc untrack_all*(self: Zen) =
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   for item in self.tracked.items:
     yield item
+
+iterator pairs*[K, V](self: ZenTable[K, V]): Pair[K, V] =
+  for pair in self.tracked.pairs:
+    yield pair
 
 when is_main_module:
   import unittest
@@ -470,9 +479,13 @@ when is_main_module:
     check 1 notin buffers
 
   block:
-    var a = ZenTable[int, int].init
+    var a = ZenTable[int, string].init
     var b = Zen[Table[int, string], Pair[int, string]].init
+    var c = ZenTable[string, int].init
     check b is ZenTable[int, string]
+    check a == b
+    when compiles(a == c):
+      assert false, "{a.type} and {b.type} shouldn't be comparable"
 
   block:
     type TestFlag = enum
