@@ -51,9 +51,10 @@ proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
     callback(changes, gid)
 
 proc link_child[K, V, L](self: ZenTable[K, V], child: Pair[K, V], obj: L, name = "") =
+  let name = name
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
     child.link_gid = child.track proc(changes: seq[Change[O]]) =
-      let change = Change[Pair[K, V]](obj: pair, changes: {Modified})
+      let change = Change[Pair[K, V]](obj: pair, changes: {Modified}, name: name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
@@ -68,16 +69,10 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, name = "") =
     obj = obj
   proc link[T, O](child: Zen[T, O]) =
     child.link_gid = child.track proc(changes: seq[Change[O]]) =
-      when child is obj.type:
-        let change = Change[Zen[T, O]](obj: obj, changes: {Modified})
-        change.triggered_by = cast[seq[BaseChange]](changes)
-        change.triggered_by_type = $changes.type
-        self.trigger_callbacks(@[change])
-      else:
-        let change = Change[O](obj: obj, changes: {Modified}, name: name)
-        change.triggered_by = cast[seq[BaseChange]](changes)
-        change.triggered_by_type = $O
-        self.trigger_callbacks(@[change])
+      let change = Change[obj.type](obj: obj, changes: {Modified}, name: name)
+      change.triggered_by = cast[seq[BaseChange]](changes)
+      change.triggered_by_type = $O
+      self.trigger_callbacks(@[change])
 
   if not child.is_nil:
     link(child)
@@ -497,14 +492,20 @@ when is_main_module:
       b is Zen[set[TestFlag], TestFlag]
 
   block nested_triggers:
-    type Unit = ref object
-      id: int
-      parent: Unit
-      units: Zen[seq[Unit], Unit]
+    type
+      UnitFlags = enum
+        Targeted, Highlighted
+
+      Unit = ref object
+        id: int
+        parent: Unit
+        units: Zen[seq[Unit], Unit]
+        flags: ZenSet[UnitFlags]
 
     proc init(_: type Unit, id = 0): Unit =
       result = Unit(id: id)
       result.units = Zen.init(seq[Unit])
+      result.flags = Zen.init(set[UnitFlags])
 
     var a = Unit.init
     var id = a.units.count_changes
@@ -520,8 +521,15 @@ when is_main_module:
       for change in changes:
         triggered_by.add change.triggered_by
 
-    c.units.add Unit.init(id = 222)
+    let d = Unit.init(id = 222)
+    c.units.add d
     check triggered_by[0][0].triggered_by[0] of Change[Unit]
     check triggered_by[0][0].triggered_by_type == "Unit"
     let x = Change[Unit](triggered_by[0][0].triggered_by[0])
     check x.obj.id == 222
+    d.flags += Targeted
+    let trigger = triggered_by[0][0].triggered_by[0].triggered_by[0]
+    check trigger of Change[UnitFlags]
+    let f = Change[UnitFlags](trigger)
+    check Added in f.changes
+    check f.obj == Targeted
