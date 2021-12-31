@@ -290,6 +290,10 @@ iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   for item in self.tracked.items:
     yield item
 
+iterator items*[K, V](self: ZenTable[K, V]): Pair[K, V] =
+  for pair in self.tracked.pairs:
+    yield pair
+
 iterator pairs*[K, V](self: ZenTable[K, V]): Pair[K, V] =
   for pair in self.tracked.pairs:
     yield pair
