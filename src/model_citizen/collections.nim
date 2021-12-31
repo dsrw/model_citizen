@@ -3,7 +3,7 @@ import pkg/print
 
 type
   ChangeKind* = enum
-      Added, Removed, Modified
+      Added, Removed, Modified, Touched
 
   Zen*[T, O] = ref object
     tracked: T
@@ -17,7 +17,7 @@ type
 
   BaseChange* = ref object of RootObj
     changes*: set[ChangeKind]
-    name*: string
+    field_name*: string
     triggered_by*: seq[BaseChange]
     triggered_by_type*: string
 
@@ -46,15 +46,16 @@ template `&`[T](a, b: set[T]): set[T] = a + b
 proc len[T, O](self: Zen[T, O]): int = self.tracked.len
 
 proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
-  let callbacks = self.changed_callbacks.dup
-  for gid, callback in callbacks.pairs:
-    callback(changes, gid)
+  if changes.len > 0:
+    let callbacks = self.changed_callbacks.dup
+    for gid, callback in callbacks.pairs:
+      callback(changes, gid)
 
-proc link_child[K, V, L](self: ZenTable[K, V], child: Pair[K, V], obj: L, name = "") =
-  let name = name
+proc link_child[K, V, L](self: ZenTable[K, V], child: Pair[K, V], obj: L, field_name = "") =
+  let field_name = field_name
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
     child.link_gid = child.track proc(changes: seq[Change[O]]) =
-      let change = Change[Pair[K, V]](obj: pair, changes: {Modified}, name: name)
+      let change = Change[Pair[K, V]](obj: pair, changes: {Modified}, field_name: field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
@@ -62,14 +63,14 @@ proc link_child[K, V, L](self: ZenTable[K, V], child: Pair[K, V], obj: L, name =
   if not child.value.is_nil:
     self.link(child, child.value)
 
-proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, name = "") =
+proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
   let
-    name = name
+    field_name = field_name
     self = self
     obj = obj
   proc link[T, O](child: Zen[T, O]) =
     child.link_gid = child.track proc(changes: seq[Change[O]]) =
-      let change = Change[obj.type](obj: obj, changes: {Modified}, name: name)
+      let change = Change[obj.type](obj: obj, changes: {Modified}, field_name: field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
@@ -110,36 +111,49 @@ proc link_and_unlink(self, added, removed: auto) =
           if not val.is_nil:
             val.unlink
 
-proc process_changes[T, O](self: Zen[T, O], initial: T) =
-  if self.tracked != initial:
-    let added = (self.tracked - initial).map_it Change[O](obj: it, changes: {Added})
-    let removed = (initial - self.tracked).map_it Change[O](obj: it, changes: {Removed})
+proc process_changes[T, O](self: Zen[T, O], initial: T, touch = T.default) =
+  let added = (self.tracked - initial).map_it:
+    let changes = if it in touch: {Touched} else: {}
+    Change[O](obj: it, changes: {Added} + changes)
+  let removed = (initial - self.tracked).map_it Change[O](obj: it, changes: {Removed})
+  let changes = added & removed
 
-    self.trigger_callbacks(added & removed)
+  var touched: seq[Change[O]]
+  for item in touch:
+    if item in initial:
+      touched.add Change[O](obj: item, changes: {Touched})
 
-    self.link_and_unlink(added, removed)
+  self.trigger_callbacks(added & removed & touched)
+  self.link_and_unlink(added, removed)
 
 proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Table[K, V]) =
-  if self.tracked != initial_table:
-    let
-      tracked: seq[Pair[K, V]] = self.tracked.pairs.to_seq
-      initial: seq[Pair[K, V]] = initial_table.pairs.to_seq
+  let
+    tracked: seq[Pair[K, V]] = self.tracked.pairs.to_seq
+    initial: seq[Pair[K, V]] = initial_table.pairs.to_seq
 
-      added = (tracked - initial).map_it:
-        var changes = {Added}
-        if it.key in initial_table: changes.incl Modified
-        Change[Pair[K, V]](obj: it, changes: changes)
+    added = (tracked - initial).map_it:
+      var changes = {Added}
+      if it.key in initial_table: changes.incl Modified
+      Change[Pair[K, V]](obj: it, changes: changes)
 
-      removed = (initial - tracked).map_it:
-        var changes = {Removed}
-        if it.key in self.tracked: changes.incl Modified
-        Change[Pair[K, V]](obj: it, changes: changes)
+    removed = (initial - tracked).map_it:
+      var changes = {Removed}
+      if it.key in self.tracked: changes.incl Modified
+      Change[Pair[K, V]](obj: it, changes: changes)
 
-    self.trigger_callbacks(added & removed)
+  self.trigger_callbacks(added & removed)
 
-    self.link_and_unlink(added, removed)
+  self.link_and_unlink(added, removed)
 
-template mutate(body) =
+template mutate_and_touch(touch: untyped, body: untyped) =
+  when compiles(self.tracked[]):
+    let initial_values = self.tracked[]
+  else:
+    let initial_values = self.tracked.dup
+  body
+  self.process_changes(initial_values, touch)
+
+template mutate(body: untyped) =
   when compiles(self.tracked[]):
     let initial_values = self.tracked[]
   else:
@@ -149,6 +163,13 @@ template mutate(body) =
 
 proc change[T, O](self: Zen[T, O], items: T, add: bool) =
   mutate:
+    if add:
+      self.tracked = self.tracked & items
+    else:
+      self.tracked = self.tracked - items
+
+proc change_and_touch[T, O](self: Zen[T, O], items: T, add: bool) =
+  mutate_and_touch(touch = items):
     if add:
       self.tracked = self.tracked & items
     else:
@@ -210,6 +231,15 @@ proc delete*[K, V](self: ZenTable[K, V], key: K) =
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
   mutate:
     self.tracked.delete(index)
+
+proc touch*[T: set, O](self: Zen[T, O], value: O) =
+  self.change_and_touch({value}, true)
+
+proc touch*[T: seq, O](self: Zen[T, O], value: O) =
+  self.change_and_touch(@[value], true)
+
+proc touch*[T, O](self: Zen[T, O], value: T) =
+  self.change_and_touch(value, true)
 
 proc `+=`*[T, O](self: Zen[T, O], value: T) =
   self.change(value, true)
@@ -459,6 +489,11 @@ when is_main_module:
     1.changes: buffers[1][1][0] += {Flag1, Flag2}
     0.changes: buffers[1][1][0] += {Flag1, Flag2}
     2.changes: buffers[1][1][0] -= {Flag1, Flag2}
+    1.changes: buffers[1][1][0].touch Flag1
+    0.changes: buffers[1][1][0] += Flag1
+    1.changes: buffers[1][1][0].touch Flag1
+    2.changes: buffers[1][1][0].touch {Flag1, Flag2}
+    2.changes: buffers[1][1][0].touch {Flag1, Flag2}
 
     buffers[1][1][0].untrack(id)
 
