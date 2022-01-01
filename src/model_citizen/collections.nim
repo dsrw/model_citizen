@@ -186,11 +186,6 @@ proc `value=`*[T, O](self: Zen[T, O], value: T) =
 proc value*[T, O](self: Zen[T, O]): T = self.tracked
 
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
-  when result is Zen:
-    if index notin self.tracked:
-      mutate:
-        let v = V.init
-        self.tracked[index] = v
   result = self.tracked[index]
 
 proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal): T =
@@ -440,7 +435,7 @@ when is_main_module:
     var a = Zen.init(Table[int, ZenSeq[string]])
     a.track proc(changes, _: auto) =
       discard
-    a[1] += "nim"
+    a[1] = %["nim"]
     a[5] = %["vin", "rw"]
     a.clear
 
