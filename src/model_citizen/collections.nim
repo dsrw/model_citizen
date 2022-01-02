@@ -14,6 +14,7 @@ type
   ZenTable*[K, V] = Zen[Table[K, V], Pair[K, V]]
   ZenSeq*[T] = Zen[seq[T], T]
   ZenSet*[T] = Zen[set[T], T]
+  ZenValue*[T] = Zen[T, T]
 
   BaseChange* = ref object of RootObj
     changes*: set[ChangeKind]
@@ -111,7 +112,14 @@ proc link_and_unlink(self, added, removed: auto) =
           if not val.is_nil:
             val.unlink
 
-proc process_changes[T, O](self: Zen[T, O], initial: T, touch = T.default) =
+proc process_changes[T](self: Zen[T, T], initial: T) =
+  if initial != self.tracked:
+    self.trigger_callbacks(@[
+      Change[T](obj: initial, changes: {Removed, Modified}),
+      Change[T](obj: self.tracked, changes: {Added, Modified}),
+    ])
+
+proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.default) =
   let added = (self.tracked - initial).map_it:
     let changes = if it in touch: {Touched} else: {}
     Change[O](obj: it, changes: {Added} + changes)
@@ -261,6 +269,15 @@ proc `==`*(a, b: Zen): bool =
 
 proc init*(T: type Zen): T = T()
 
+proc init*(_: type Zen, T: type[object | SomeOrdinal | SomeNumber | string]): Zen[T, T] =
+  result = Zen[T, T]()
+
+proc init*[T: object | SomeOrdinal | SomeNumber | string](_: type Zen, tracked: T): Zen[T, T] =
+  var self = Zen[T, T]()
+  mutate:
+    self.tracked = tracked
+  result = self
+
 proc init*[O](_: type Zen, tracked: set[O]): Zen[set[O], O] =
   var self = Zen[set[O], O]()
   mutate:
@@ -337,6 +354,19 @@ when is_main_module:
     if change_count != expected_count:
       echo ast_to_str(body)
       echo "Expected ", expected_count, " changes. Got ", change_count
+
+  import deques
+  template assert_changes[T, O](self: Zen[T, O], expect, body: untyped) =
+    var expectations = expect.to_deque
+    self.track proc(changes: seq[Change[O]]) =
+      for change in changes:
+        let expectation = expectations.pop_first()
+        if not (expectation[0] in change.changes and expectation[1] == change.obj):
+          print "unsatisfied expectation", expectation, change
+    body
+    if expectations.len > 0:
+      echo "unsatisfied expectations: ", expectations
+      assert false
 
   block sets:
     type
@@ -567,3 +597,17 @@ when is_main_module:
     let f = Change[UnitFlags](trigger)
     check Added in f.changes
     check f.obj == Targeted
+
+  block primitives:
+    let a = ZenValue[int].init
+    a.assert_changes {Removed: 0, Added: 5, Removed: 5, Added: 10}:
+      a.value = 5
+      a.value = 10
+
+    let b = %4
+    b.assert_changes {Removed: 4, Added: 11}:
+      b.value = 11
+
+    let c = %"enu"
+    c.assert_changes {Removed: "enu", Added: "ENU"}:
+      c.value = "ENU"
