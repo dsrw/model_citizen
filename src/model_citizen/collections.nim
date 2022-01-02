@@ -23,7 +23,7 @@ type
     triggered_by_type*: string
 
   Change*[O] = ref object of BaseChange
-    obj*: O
+    item*: O
 
   Pair*[K, V] = tuple[key: K, value: V]
 
@@ -56,7 +56,7 @@ proc link_child[K, V, L](self: ZenTable[K, V], child: Pair[K, V], obj: L, field_
   let field_name = field_name
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
     child.link_gid = child.track proc(changes: seq[Change[O]]) =
-      let change = Change[Pair[K, V]](obj: pair, changes: {Modified}, field_name: field_name)
+      let change = Change[Pair[K, V]](item: pair, changes: {Modified}, field_name: field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
@@ -71,7 +71,7 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
     obj = obj
   proc link[T, O](child: Zen[T, O]) =
     child.link_gid = child.track proc(changes: seq[Change[O]]) =
-      let change = Change[obj.type](obj: obj, changes: {Modified}, field_name: field_name)
+      let change = Change[obj.type](item: obj, changes: {Modified}, field_name: field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
@@ -88,19 +88,19 @@ proc unlink[T: Pair](pair: T) =
   pair.value.link_gid = 0
 
 proc link_and_unlink(self, added, removed: auto) =
-  template value(change: Change[Pair]): untyped = change.obj.value
-  template value(change: not Change[Pair]): untyped = change.obj
+  template value(change: Change[Pair]): untyped = change.item.value
+  template value(change: not Change[Pair]): untyped = change.item
   template deref(o: ref): untyped = o[]
   template deref(o: not ref): untyped = o
 
   for change in added:
     when change.value is Zen:
-      self.link_child(change.obj, change.obj)
+      self.link_child(change.item, change.item)
     elif change.value is object or change.value is ref:
       for name, val in change.value.deref.field_pairs:
         when val is Zen:
           if not val.is_nil:
-            self.link_child(val, change.obj, name)
+            self.link_child(val, change.item, name)
 
   for change in removed:
     when change.value is Zen:
@@ -115,21 +115,21 @@ proc link_and_unlink(self, added, removed: auto) =
 proc process_changes[T](self: Zen[T, T], initial: T) =
   if initial != self.tracked:
     self.trigger_callbacks(@[
-      Change[T](obj: initial, changes: {Removed, Modified}),
-      Change[T](obj: self.tracked, changes: {Added, Modified}),
+      Change[T](item: initial, changes: {Removed, Modified}),
+      Change[T](item: self.tracked, changes: {Added, Modified}),
     ])
 
 proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.default) =
   let added = (self.tracked - initial).map_it:
     let changes = if it in touch: {Touched} else: {}
-    Change[O](obj: it, changes: {Added} + changes)
-  let removed = (initial - self.tracked).map_it Change[O](obj: it, changes: {Removed})
+    Change[O](item: it, changes: {Added} + changes)
+  let removed = (initial - self.tracked).map_it Change[O](item: it, changes: {Removed})
   let changes = added & removed
 
   var touched: seq[Change[O]]
   for item in touch:
     if item in initial:
-      touched.add Change[O](obj: item, changes: {Touched})
+      touched.add Change[O](item: item, changes: {Touched})
 
   self.trigger_callbacks(added & removed & touched)
   self.link_and_unlink(added, removed)
@@ -142,12 +142,12 @@ proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Ta
     added = (tracked - initial).map_it:
       var changes = {Added}
       if it.key in initial_table: changes.incl Modified
-      Change[Pair[K, V]](obj: it, changes: changes)
+      Change[Pair[K, V]](item: it, changes: changes)
 
     removed = (initial - tracked).map_it:
       var changes = {Removed}
       if it.key in self.tracked: changes.incl Modified
-      Change[Pair[K, V]](obj: it, changes: changes)
+      Change[Pair[K, V]](item: it, changes: changes)
 
   self.trigger_callbacks(added & removed)
 
@@ -361,7 +361,7 @@ when is_main_module:
     self.track proc(changes: seq[Change[O]]) =
       for change in changes:
         let expectation = expectations.pop_first()
-        if not (expectation[0] in change.changes and expectation[1] == change.obj):
+        if not (expectation[0] in change.changes and expectation[1] == change.item):
           print "unsatisfied expectation", expectation, change
     body
     if expectations.len > 0:
@@ -391,8 +391,8 @@ when is_main_module:
       added = {}
       removed = {}
       for c in changes:
-        if Added in c.changes: added.incl(c.obj)
-        elif Removed in c.changes: removed.incl(c.obj)
+        if Added in c.changes: added.incl(c.item)
+        elif Removed in c.changes: removed.incl(c.item)
 
     s += Flag3
     check:
@@ -417,8 +417,8 @@ when is_main_module:
       also_added = {}
       also_removed = {}
       for c in changes:
-        if Added in c.changes: also_added.incl(c.obj)
-        elif Removed in c.changes: also_removed.incl(c.obj)
+        if Added in c.changes: also_added.incl(c.item)
+        elif Removed in c.changes: also_removed.incl(c.item)
 
     s.untrack(gid)
     s.value = {Flag2, Flag3}
@@ -437,8 +437,8 @@ when is_main_module:
       added_items, removed_items: seq[string]
 
     var id = s.track proc(changes: auto) =
-      added_items.add changes.filter_it(Added in it.changes).map_it it.obj
-      removed_items.add changes.filter_it(Removed in it.changes).map_it it.obj
+      added_items.add changes.filter_it(Added in it.changes).map_it it.item
+      removed_items.add changes.filter_it(Removed in it.changes).map_it it.item
     s.add "hello"
     s.add "world"
 
@@ -527,7 +527,7 @@ when is_main_module:
       changed = true
       check changes.len == 2
       check changes[0].changes == {Added, Modified}
-      check changes[0].obj.value.is_nil
+      check changes[0].item.value.is_nil
       check changes[1].changes == {Removed, Modified}
     buffers[1] = nil
     check changed
@@ -590,13 +590,13 @@ when is_main_module:
     check triggered_by[0][0].triggered_by[0] of Change[Unit]
     check triggered_by[0][0].triggered_by_type == "Unit"
     let x = Change[Unit](triggered_by[0][0].triggered_by[0])
-    check x.obj.id == 222
+    check x.item.id == 222
     d.flags += Targeted
     let trigger = triggered_by[0][0].triggered_by[0].triggered_by[0]
     check trigger of Change[UnitFlags]
     let f = Change[UnitFlags](trigger)
     check Added in f.changes
-    check f.obj == Targeted
+    check f.item == Targeted
 
   block primitives:
     let a = ZenValue[int].init
