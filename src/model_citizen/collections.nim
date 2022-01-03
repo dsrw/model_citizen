@@ -326,6 +326,20 @@ proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]], gid: 
 proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]])): int {.discardable.} =
   self.track proc(changes, _: auto) = callback(changes)
 
+template changes*[T, O](self: Zen[T, O], body) =
+  self.track proc(changes: seq[Change[O]], gid {.inject.}: int) =
+    for change {.inject.} in changes:
+      template added: bool = Added in change.changes
+      template added(obj: O): bool = change.item == obj and added()
+      template removed: bool = Removed in change.changes
+      template removed(obj: O): bool = change.item == obj and removed()
+      template modified: bool = Modified in change.changes
+      template modified(obj: O): bool = change.item == obj and modified()
+      template touched: bool = Touched in change.changes
+      template touched(obj: O): bool = change.item == obj and touched()
+
+      body
+
 proc untrack*(self: Zen, gid: int) =
   self.changed_callbacks.del(gid)
 
@@ -348,9 +362,8 @@ when is_main_module:
   import unittest
   var change_count = 0
   proc count_changes(obj: auto): int {.discardable.} =
-    obj.track proc(changes:auto) =
-      for change in changes:
-        change_count += 1
+    obj.changes:
+      change_count += 1
 
   template changes(expected_count: int, body) =
     change_count = 0
