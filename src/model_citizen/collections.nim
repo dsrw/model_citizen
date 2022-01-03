@@ -154,16 +154,20 @@ proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Ta
   self.link_and_unlink(added, removed)
 
 template mutate_and_touch(touch: untyped, body: untyped) =
-  when compiles(self.tracked[]):
+  when self.tracked is Zen:
     let initial_values = self.tracked[]
+  elif self.tracked is ref:
+    let initial_values = self.tracked
   else:
     let initial_values = self.tracked.dup
   body
   self.process_changes(initial_values, touch)
 
 template mutate(body: untyped) =
-  when compiles(self.tracked[]):
+  when self.tracked is Zen:
     let initial_values = self.tracked[]
+  elif self.tracked is ref:
+    let initial_values = self.tracked
   else:
     let initial_values = self.tracked.dup
   body
@@ -269,10 +273,10 @@ proc `==`*(a, b: Zen): bool =
 
 proc init*(T: type Zen): T = T()
 
-proc init*(_: type Zen, T: type[object | SomeOrdinal | SomeNumber | string]): Zen[T, T] =
+proc init*(_: type Zen, T: type[ref | object | SomeOrdinal | SomeNumber | string]): Zen[T, T] =
   result = Zen[T, T]()
 
-proc init*[T: object | SomeOrdinal | SomeNumber | string](_: type Zen, tracked: T): Zen[T, T] =
+proc init*[T: ref | object | SomeOrdinal | SomeNumber | string](_: type Zen, tracked: T): Zen[T, T] =
   var self = Zen[T, T]()
   mutate:
     self.tracked = tracked
@@ -611,3 +615,14 @@ when is_main_module:
     let c = %"enu"
     c.assert_changes {Removed: "enu", Added: "ENU"}:
       c.value = "ENU"
+
+  block refs:
+    type ARef = ref object
+      val: int
+
+    let (r1, r2, r3) = (ARef(val: 1), ARef(val:2), ARef(val:3))
+
+    let a = %r1
+    a.assert_changes {Removed: r1, Added: r2, Removed: r2, Added: r3}:
+      a.value = r2
+      a.value = r3
