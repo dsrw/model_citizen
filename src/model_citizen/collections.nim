@@ -139,12 +139,16 @@ proc link_and_unlink(self, added, removed: auto) =
           if not val.is_nil:
             val.unlink
 
-proc process_changes[T](self: Zen[T, T], initial: T) =
+proc process_changes[T](self: Zen[T, T], initial: T, touch = false) =
   if initial != self.tracked:
+    var add_flags = {Added, Modified}
+    if touch: add_flags.incl Touched
     self.trigger_callbacks(@[
       Change[T](item: initial, changes: {Removed, Modified}),
-      Change[T](item: self.tracked, changes: {Added, Modified}),
+      Change[T](item: self.tracked, changes: add_flags),
     ])
+  elif touch:
+    self.trigger_callbacks(@[Change[T](item: self.tracked, changes: {Touched})])
 
 proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.default) =
   let added = (self.tracked - initial).map_it:
@@ -274,6 +278,10 @@ proc touch*[T: seq, O](self: Zen[T, O], value: O) =
 
 proc touch*[T, O](self: Zen[T, O], value: T) =
   self.change_and_touch(value, true)
+
+proc touch*[T](self: ZenValue[T], value: T) =
+  mutate_and_touch(touch = true):
+    self.tracked = value
 
 proc `+=`*[T, O](self: Zen[T, O], value: T) =
   self.change(value, true)
@@ -644,9 +652,13 @@ when is_main_module:
 
   block primitives:
     let a = ZenValue[int].init
-    a.assert_changes {Removed: 0, Added: 5, Removed: 5, Added: 10}:
+    a.assert_changes {Removed: 0, Added: 5, Removed: 5, Added: 10, Touched: 10,
+                      Removed: 10, Touched: 11, Removed: 11, Added: 12}:
       a.value = 5
       a.value = 10
+      a.touch 10
+      a.touch 11
+      a.touch 12
 
     let b = %4
     b.assert_changes {Removed: 4, Added: 11}:
