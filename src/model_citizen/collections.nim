@@ -1,15 +1,17 @@
-import std / [tables, sequtils, sugar, macros, genasts, typetraits]
+import std / [tables, sequtils, sugar, macros, genasts, typetraits, sets]
 import pkg/print
 
 type
+  ZID* = uint16
   ChangeKind* = enum
       Added, Removed, Modified, Touched
 
   Zen*[T, O] = ref object
     tracked: T
-    changed_callback_gid: int
-    link_gid: int
-    changed_callbacks: Table[int, proc(changes: seq[Change[O]], gid: int)]
+    changed_callback_zid: ZID
+    link_zid: ZID
+    paused_zids: set[ZID]
+    changed_callbacks: Table[ZID, proc(changes: seq[Change[O]], zid: ZID)]
 
   ZenTable*[K, V] = Zen[Table[K, V], Pair[K, V]]
   ZenSeq*[T] = Zen[seq[T], T]
@@ -49,13 +51,38 @@ proc len[T, O](self: Zen[T, O]): int = self.tracked.len
 proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
   if changes.len > 0:
     let callbacks = self.changed_callbacks.dup
-    for gid, callback in callbacks.pairs:
-      callback(changes, gid)
+    for zid, callback in callbacks.pairs:
+      if zid notin self.paused_zids:
+        callback(changes, zid)
+
+proc pause_changes*(self: Zen, zids: varargs[ZID]) =
+  if zids.len == 0:
+    for zid in self.changed_callbacks.keys:
+      self.paused_zids.incl(zid)
+  else:
+    for zid in zids: self.paused_zids.incl(zid)
+
+proc resume_changes*(self: Zen, zids: varargs[ZID]) =
+  if zids.len == 0:
+    self.paused_zids = {}
+  else:
+    for zid in zids: self.paused_zids.excl(zid)
+
+template pause*(self: Zen, zids: varargs[ZID], body: untyped) =
+  self.pause_changes(zids)
+  try:
+    body
+  finally:
+    self.resume_changes(zids)
+
+template pause*(self: Zen, body: untyped) =
+  self.pause []:
+    body
 
 proc link_child[K, V, L](self: ZenTable[K, V], child: Pair[K, V], obj: L, field_name = "") =
   let field_name = field_name
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
-    child.link_gid = child.track proc(changes: seq[Change[O]]) =
+    child.link_zid = child.track proc(changes: seq[Change[O]]) =
       let change = Change[Pair[K, V]](item: pair, changes: {Modified}, field_name: field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
@@ -70,7 +97,7 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
     self = self
     obj = obj
   proc link[T, O](child: Zen[T, O]) =
-    child.link_gid = child.track proc(changes: seq[Change[O]]) =
+    child.link_zid = child.track proc(changes: seq[Change[O]]) =
       let change = Change[obj.type](item: obj, changes: {Modified}, field_name: field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
@@ -80,12 +107,12 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
     link(child)
 
 proc unlink(self: Zen) =
-  self.untrack(self.link_gid)
-  self.link_gid = 0
+  self.untrack(self.link_zid)
+  self.link_zid = 0
 
 proc unlink[T: Pair](pair: T) =
-  pair.value.untrack(pair.value.link_gid)
-  pair.value.link_gid = 0
+  pair.value.untrack(pair.value.link_zid)
+  pair.value.link_zid = 0
 
 proc link_and_unlink(self, added, removed: auto) =
   template value(change: Change[Pair]): untyped = change.item.value
@@ -318,16 +345,16 @@ proc init*[K, V](t: type Zen, tracked: open_array[(K, V)]): ZenTable[K, V] =
 template `%`*(body: untyped): untyped =
   Zen.init(body)
 
-proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]], gid: int)): int {.discardable.} =
-  inc self.changed_callback_gid
-  result = self.changed_callback_gid
+proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]], zid: ZID)): ZID {.discardable.} =
+  inc self.changed_callback_zid
+  result = self.changed_callback_zid
   self.changed_callbacks[result] = callback
 
-proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]])): int {.discardable.} =
+proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]])): ZID {.discardable.} =
   self.track proc(changes, _: auto) = callback(changes)
 
 template changes*[T, O](self: Zen[T, O], body) =
-  self.track proc(changes: seq[Change[O]], gid {.inject.}: int) =
+  self.track proc(changes: seq[Change[O]], zid {.inject.}: ZID) =
     for change {.inject.} in changes:
       template added: bool = Added in change.changes
       template added(obj: O): bool = change.item == obj and added()
@@ -340,8 +367,8 @@ template changes*[T, O](self: Zen[T, O], body) =
 
       body
 
-proc untrack*(self: Zen, gid: int) =
-  self.changed_callbacks.del(gid)
+proc untrack*(self: Zen, zid: ZID) =
+  self.changed_callbacks.del(zid)
 
 proc untrack_all*(self: Zen) =
   self.changed_callbacks.clear
@@ -361,7 +388,7 @@ iterator pairs*[K, V](self: ZenTable[K, V]): Pair[K, V] =
 when is_main_module:
   import unittest
   var change_count = 0
-  proc count_changes(obj: auto): int {.discardable.} =
+  proc count_changes(obj: auto): ZID {.discardable.} =
     obj.changes:
       change_count += 1
 
@@ -404,7 +431,7 @@ when is_main_module:
     var added: set[TestFlags]
     var removed: set[TestFlags]
 
-    let gid = s.track proc(changes, gid: auto) =
+    let zid = s.track proc(changes, zid: auto) =
       added = {}
       removed = {}
       for c in changes:
@@ -430,14 +457,14 @@ when is_main_module:
 
     var also_added: set[TestFlags]
     var also_removed: set[TestFlags]
-    s.track proc(changes, gid: auto) =
+    s.track proc(changes, zid: auto) =
       also_added = {}
       also_removed = {}
       for c in changes:
         if Added in c.changes: also_added.incl(c.item)
         elif Removed in c.changes: also_removed.incl(c.item)
 
-    s.untrack(gid)
+    s.untrack(zid)
     s.value = {Flag2, Flag3}
     check:
       added == {Flag1, Flag4}
@@ -639,3 +666,21 @@ when is_main_module:
     a.assert_changes {Removed: r1, Added: r2, Removed: r2, Added: r3}:
       a.value = r2
       a.value = r3
+
+  block pausing:
+    var s = ZenValue[string].init
+    let zid = s.count_changes
+    2.changes: s.value = "one"
+    s.pause zid:
+      0.changes: s.value = "two"
+    2.changes: s.value = "three"
+    let zids = @[zid, 1234]
+    s.pause zids:
+      0.changes: s.value = "four"
+    2.changes: s.value = "five"
+    s.pause zid, 1234:
+      0.changes: s.value = "six"
+    2.changes: s.value = "seven"
+    s.pause:
+      0.changes: s.value = "eight"
+    2.changes: s.value = "nine"
