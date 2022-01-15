@@ -79,7 +79,7 @@ template pause*(self: Zen, body: untyped) =
   self.pause []:
     body
 
-proc link_child[K, V, L](self: ZenTable[K, V], child: Pair[K, V], obj: L, field_name = "") =
+proc link_child[K, V](self: ZenTable[K, V], child, obj: Pair[K, V], field_name = "") =
   let field_name = field_name
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
     child.link_zid = child.track proc(changes: seq[Change[O]]) =
@@ -114,30 +114,31 @@ proc unlink[T: Pair](pair: T) =
   pair.value.untrack(pair.value.link_zid)
   pair.value.link_zid = 0
 
-proc link_and_unlink(self, added, removed: auto) =
+proc link_or_unlink(self, changes: auto, link: bool) =
   template value(change: Change[Pair]): untyped = change.item.value
   template value(change: not Change[Pair]): untyped = change.item
   template deref(o: ref): untyped = o[]
   template deref(o: not ref): untyped = o
 
-  for change in added:
-    when change.value is Zen:
-      self.link_child(change.item, change.item)
-    elif change.value is object or change.value is ref:
-      for name, val in change.value.deref.field_pairs:
-        when val is Zen:
-          if not val.is_nil:
-            self.link_child(val, change.item, name)
-
-  for change in removed:
-    when change.value is Zen:
-      if not change.value.is_nil:
-        change.value.unlink
-    elif change.value is object or change.value is ref:
-      for name, val in change.value.deref.field_pairs:
-        when val is Zen:
-          if not val.is_nil:
-            val.unlink
+  if link:
+    for change in changes:
+      when change.value is Zen:
+        self.link_child(change.item, change.item)
+      elif change.value is object or change.value is ref:
+        for name, val in change.value.deref.field_pairs:
+          when val is Zen:
+            if not val.is_nil:
+              self.link_child(val, change.item, name)
+  else:
+    for change in changes:
+      when change.value is Zen:
+        if not change.value.is_nil:
+          change.value.unlink
+      elif change.value is object or change.value is ref:
+        for name, val in change.value.deref.field_pairs:
+          when val is Zen:
+            if not val.is_nil:
+              val.unlink
 
 proc process_changes[T](self: Zen[T, T], initial: T, touch = false) =
   if initial != self.tracked:
@@ -163,7 +164,8 @@ proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.def
       touched.add Change[O](item: item, changes: {Touched})
 
   self.trigger_callbacks(added & removed & touched)
-  self.link_and_unlink(added, removed)
+  self.link_or_unlink(added, true)
+  self.link_or_unlink(removed, false)
 
 proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Table[K, V]) =
   let
@@ -181,8 +183,8 @@ proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Ta
       Change[Pair[K, V]](item: it, changes: changes)
 
   self.trigger_callbacks(added & removed)
-
-  self.link_and_unlink(added, removed)
+  self.link_or_unlink(added, true)
+  self.link_or_unlink(removed, false)
 
 template mutate_and_touch(touch: untyped, body: untyped) =
   when self.tracked is Zen:
@@ -223,8 +225,9 @@ proc clear*[T, O](self: Zen[T, O]) =
     self.tracked = T.default
 
 proc `value=`*[T, O](self: Zen[T, O], value: T) =
-  mutate:
-    self.tracked = value
+  if self.tracked != value:
+    mutate:
+      self.tracked = value
 
 proc value*[T, O](self: Zen[T, O]): T = self.tracked
 
@@ -234,41 +237,64 @@ proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
 proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal): T =
   self.tracked[index]
 
-proc `[]=`*[K, V](self: ZenTable[K, V], index: K, value: V) =
-  mutate:
-    self.tracked[index] = value
+proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
+  if key in self.tracked and self.tracked[key] != value:
+    let removed = Change[Pair[K, V]](item: (key, self.tracked[key]), changes: {Removed, Modified})
+    let added = Change[Pair[K, V]](item: (key, value), changes: {Added, Modified})
+    when value is Zen:
+      let prev = self.tracked[key]
+      if not prev.is_nil:
+        prev.unlink
+      self.link_child(added.item, added.item)
+    self.tracked[key] = value
+    self.trigger_callbacks(@[added, removed])
+  elif key notin self.tracked:
+    let added = Change[Pair[K, V]](item: (key, value), changes: {Added})
+    when value is Zen:
+      self.link_child(added.item, added.item)
+    self.tracked[key] = value
+    self.trigger_callbacks(@[added])
 
 proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T) =
   mutate:
     self.tracked[index] = value
 
 proc add*[T, O](self: Zen[T, O], value: O) =
-  mutate:
-    self.tracked.add value
+  self.tracked.add value
+  let added = @[Change[O](item: value, changes: {Added})]
+  self.trigger_callbacks(added)
+  self.link_or_unlink(added, true)
+
+template remove(self, key, item_exp, fun, T) =
+  let obj = item_exp
+  self.tracked.fun key
+  let removed = @[Change[T](item: obj, changes: {Removed})]
+  self.trigger_callbacks(removed)
+  self.link_or_unlink(removed, false)
 
 proc del*[T, O](self: Zen[T, O], value: O) =
-  mutate:
-    self.tracked.del value
+  if value in self.tracked:
+    remove(self, value, value, del, O)
 
 proc del*[K, V](self: ZenTable[K, V], key: K) =
-  mutate:
-    self.tracked.del key
+  if key in self.tracked:
+    remove(self, key, (key, self.tracked[key]), del, Pair[K, V])
 
 proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
-  mutate:
-    self.tracked.del(index)
+  if index < self.tracked.len:
+    remove(self, index, self.tracked[index], del, O)
 
 proc delete*[T, O](self: Zen[T, O], value: O) =
-  mutate:
-    self.tracked.delete value
+  if value in self.tracked:
+    remove(self, value, value, delete, O)
 
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
-  mutate:
-    self.tracked.delete key
+  if key in self.tracked:
+    remove(self, key, (key, self.tracked[key]), delete, Pair[K, V])
 
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
-  mutate:
-    self.tracked.delete(index)
+  if index < self.tracked.len:
+    remove(self, index, self.tracked[index], delete, O)
 
 proc touch*[T: set, O](self: Zen[T, O], value: O) =
   self.change_and_touch({value}, true)
@@ -286,11 +312,11 @@ proc touch*[T](self: ZenValue[T], value: T) =
 proc `+=`*[T, O](self: Zen[T, O], value: T) =
   self.change(value, true)
 
-proc `+=`*[T: set, O](self: Zen[T, O], value: O) =
+proc `+=`*[O](self: ZenSet[O], value: O) =
   self.change({value}, true)
 
 proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
-  self.change(@[value], true)
+  self.add(value)
 
 proc `-=`*[T, O](self: Zen[T, O], value: T) =
   self.change(value, false)
