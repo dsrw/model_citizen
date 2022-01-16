@@ -265,36 +265,36 @@ proc add*[T, O](self: Zen[T, O], value: O) =
   self.trigger_callbacks(added)
   self.link_or_unlink(added, true)
 
-template remove(self, key, item_exp, fun, T) =
+template remove(self, key, item_exp, fun) =
   let obj = item_exp
   self.tracked.fun key
-  let removed = @[Change[T](item: obj, changes: {Removed})]
+  let removed = @[Change[obj.type](item: obj, changes: {Removed})]
   self.trigger_callbacks(removed)
   self.link_or_unlink(removed, false)
 
 proc del*[T, O](self: Zen[T, O], value: O) =
   if value in self.tracked:
-    remove(self, value, value, del, O)
+    remove(self, value, value, del)
 
 proc del*[K, V](self: ZenTable[K, V], key: K) =
   if key in self.tracked:
-    remove(self, key, (key, self.tracked[key]), del, Pair[K, V])
+    remove(self, key, (key: key, value: self.tracked[key]), del)
 
 proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
   if index < self.tracked.len:
-    remove(self, index, self.tracked[index], del, O)
+    remove(self, index, self.tracked[index], del)
 
 proc delete*[T, O](self: Zen[T, O], value: O) =
   if value in self.tracked:
-    remove(self, value, value, delete, O)
+    remove(self, value, value, delete)
 
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
   if key in self.tracked:
-    remove(self, key, (key, self.tracked[key]), delete, Pair[K, V])
+    remove(self, key, (key: key, value: self.tracked[key]), delete)
 
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
   if index < self.tracked.len:
-    remove(self, index, self.tracked[index], delete, O)
+    remove(self, index, self.tracked[index], delete)
 
 proc touch*[T: set, O](self: Zen[T, O], value: O) =
   self.change_and_touch({value}, true)
@@ -308,6 +308,8 @@ proc touch*[T, O](self: Zen[T, O], value: T) =
 proc touch*[T](self: ZenValue[T], value: T) =
   mutate_and_touch(touch = true):
     self.tracked = value
+
+proc len*(self: Zen): int = self.tracked.len
 
 proc `+=`*[T, O](self: Zen[T, O], value: T) =
   self.change(value, true)
