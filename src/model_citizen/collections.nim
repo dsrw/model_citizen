@@ -161,16 +161,17 @@ proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.def
     let changes = if it in touch: {Touched} else: {}
     Change[O](item: it, changes: {Added} + changes)
   let removed = (initial - self.tracked).map_it Change[O](item: it, changes: {Removed})
-  let changes = added & removed
+  let changes = removed & added
 
   var touched: seq[Change[O]]
   for item in touch:
     if item in initial:
       touched.add Change[O](item: item, changes: {Touched})
 
-  self.trigger_callbacks(added & removed & touched)
-  self.link_or_unlink(added, true)
+  self.trigger_callbacks(removed & added & touched)
   self.link_or_unlink(removed, false)
+  self.link_or_unlink(added, true)
+
 
 proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Table[K, V]) =
   let
@@ -187,9 +188,9 @@ proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Ta
       if it.key in self.tracked: changes.incl Modified
       Change[Pair[K, V]](item: it, changes: changes)
 
-  self.trigger_callbacks(added & removed)
-  self.link_or_unlink(added, true)
+  self.trigger_callbacks(removed & added)
   self.link_or_unlink(removed, false)
+  self.link_or_unlink(added, true)
 
 template mutate_and_touch(touch: untyped, body: untyped) =
   when self.tracked is Zen:
@@ -251,7 +252,7 @@ proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
         self.link_or_unlink(removed, false)
       self.link_or_unlink(added, true)
     self.tracked[key] = value
-    self.trigger_callbacks(@[added, removed])
+    self.trigger_callbacks(@[removed, added])
   elif key notin self.tracked:
     let added = Change[Pair[K, V]](item: (key, value), changes: {Added})
     when value is Zen:
@@ -610,9 +611,10 @@ when is_main_module:
     id = buffers.track proc(changes, _: auto) =
       changed = true
       check changes.len == 2
-      check changes[0].changes == {Added, Modified}
-      check changes[0].item.value.is_nil
-      check changes[1].changes == {Removed, Modified}
+      check changes[0].changes == {Removed, Modified}
+      check not changes[0].item.value.is_nil
+      check changes[1].changes == {Added, Modified}
+      check changes[1].item.value.is_nil
     buffers[1] = nil
     check changed
     buffers.untrack(id)
