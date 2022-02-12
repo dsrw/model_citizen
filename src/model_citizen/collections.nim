@@ -12,7 +12,7 @@ type
     link_zid: ZID
     paused_zids: set[ZID]
     track_children: bool
-    changed_callbacks: Table[ZID, proc(changes: seq[Change[O]], zid: ZID)]
+    changed_callbacks: OrderedTable[ZID, proc(changes: seq[Change[O]], zid: ZID)]
 
   ZenTable*[K, V] = Zen[Table[K, V], Pair[K, V]]
   ZenSeq*[T] = Zen[seq[T], T]
