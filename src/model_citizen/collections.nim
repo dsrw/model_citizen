@@ -168,10 +168,9 @@ proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.def
     if item in initial:
       touched.add Change[O](item: item, changes: {Touched})
 
-  self.trigger_callbacks(removed & added & touched)
   self.link_or_unlink(removed, false)
   self.link_or_unlink(added, true)
-
+  self.trigger_callbacks(removed & added & touched)
 
 proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Table[K, V]) =
   let
@@ -188,9 +187,9 @@ proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Ta
       if it.key in self.tracked: changes.incl Modified
       Change[Pair[K, V]](item: it, changes: changes)
 
-  self.trigger_callbacks(removed & added)
   self.link_or_unlink(removed, false)
   self.link_or_unlink(added, true)
+  self.trigger_callbacks(removed & added)
 
 template mutate_and_touch(touch: untyped, body: untyped) =
   when self.tracked is Zen:
@@ -267,15 +266,15 @@ proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T) =
 proc add*[T, O](self: Zen[T, O], value: O) =
   self.tracked.add value
   let added = @[Change[O](item: value, changes: {Added})]
-  self.trigger_callbacks(added)
   self.link_or_unlink(added, true)
+  self.trigger_callbacks(added)
 
 template remove(self, key, item_exp, fun) =
   let obj = item_exp
   self.tracked.fun key
   let removed = @[Change[obj.type](item: obj, changes: {Removed})]
-  self.trigger_callbacks(removed)
   self.link_or_unlink(removed, false)
+  self.trigger_callbacks(removed)
 
 proc del*[T, O](self: Zen[T, O], value: O) =
   if value in self.tracked:
