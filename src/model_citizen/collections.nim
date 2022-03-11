@@ -4,7 +4,7 @@ import pkg/print
 type
   ZID* = uint16
   ChangeKind* = enum
-      Added, Removed, Modified, Touched
+    Added, Removed, Modified, Touched
 
   Zen*[T, O] = ref object
     tracked: T
