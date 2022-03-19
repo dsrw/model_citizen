@@ -69,16 +69,20 @@ proc resume_changes*(self: Zen, zids: varargs[ZID]) =
   else:
     for zid in zids: self.paused_zids.excl(zid)
 
-template pause*(self: Zen, zids: varargs[ZID], body: untyped) =
-  self.pause_changes(zids)
+template pause_impl(self: Zen, zids: untyped, body: untyped) =
+  let previous = self.paused_zids
+  for zid in zids:
+    self.paused_zids.incl(zid)
   try:
     body
   finally:
-    self.resume_changes(zids)
+    self.paused_zids = previous
+
+template pause*(self: Zen, zids: varargs[ZID], body: untyped) =
+  pause_impl(self, zids, body)
 
 template pause*(self: Zen, body: untyped) =
-  self.pause []:
-    body
+  pause_impl(self, self.changed_callbacks.keys, body)
 
 proc link_child[K, V](self: ZenTable[K, V], child, obj: Pair[K, V], field_name = "") =
   let field_name = field_name
@@ -395,17 +399,18 @@ proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]])): ZID
 
 template changes*[T, O](self: Zen[T, O], body) =
   self.track proc(changes: seq[Change[O]], zid {.inject.}: ZID) =
-    for change {.inject.} in changes:
-      template added: bool = Added in change.changes
-      template added(obj: O): bool = change.item == obj and added()
-      template removed: bool = Removed in change.changes
-      template removed(obj: O): bool = change.item == obj and removed()
-      template modified: bool = Modified in change.changes
-      template modified(obj: O): bool = change.item == obj and modified()
-      template touched: bool = Touched in change.changes
-      template touched(obj: O): bool = change.item == obj and touched()
+    self.pause(zid):
+      for change {.inject.} in changes:
+        template added: bool = Added in change.changes
+        template added(obj: O): bool = change.item == obj and added()
+        template removed: bool = Removed in change.changes
+        template removed(obj: O): bool = change.item == obj and removed()
+        template modified: bool = Modified in change.changes
+        template modified(obj: O): bool = change.item == obj and modified()
+        template touched: bool = Touched in change.changes
+        template touched(obj: O): bool = change.item == obj and touched()
 
-      body
+        body
 
 proc untrack*(self: Zen, zid: ZID) =
   self.changed_callbacks.del(zid)
@@ -734,7 +739,16 @@ when is_main_module:
     2.changes: s.value = "five"
     s.pause zid, 1234:
       0.changes: s.value = "six"
-    2.changes: s.value = "seven"
+    2.changes:
+      s.value = "seven"
     s.pause:
       0.changes: s.value = "eight"
     2.changes: s.value = "nine"
+
+    var calls = 0
+    s.changes:
+      calls += 1
+      s.value = "cal"
+
+    s.value = "vin"
+    assert calls == 2
