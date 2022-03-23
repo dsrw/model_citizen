@@ -53,7 +53,7 @@ proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
   if changes.len > 0:
     let callbacks = self.changed_callbacks.dup
     for zid, callback in callbacks.pairs:
-      if zid notin self.paused_zids:
+      if zid in self.changed_callbacks and zid notin self.paused_zids:
         callback(changes, zid)
 
 proc pause_changes*(self: Zen, zids: varargs[ZID]) =
