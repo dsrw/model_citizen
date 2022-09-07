@@ -4,7 +4,7 @@ import pkg/print
 type
   ZID* = uint16
   ChangeKind* = enum
-    Added, Removed, Modified, Touched
+    Added, Removed, Modified, Touched, Closed
 
   Zen*[T, O] = ref object
     tracked: T
@@ -88,6 +88,9 @@ proc link_child[K, V](self: ZenTable[K, V], child, obj: Pair[K, V], field_name =
   let field_name = field_name
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
     child.link_zid = child.track proc(changes: seq[Change[O]]) =
+      if changes.len == 1 and changes[0].changes == {Closed}:
+        # Don't propagate Closed changes
+        return
       let change = Change[Pair[K, V]](item: pair, changes: {Modified}, field_name: field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
@@ -103,6 +106,10 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
     obj = obj
   proc link[T, O](child: Zen[T, O]) =
     child.link_zid = child.track proc(changes: seq[Change[O]]) =
+      if changes.len == 1 and changes[0].changes == {Closed}:
+        # Don't propagate Closed changes
+        return
+
       let change = Change[obj.type](item: obj, changes: {Modified}, field_name: field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
@@ -409,13 +416,19 @@ template changes*[T, O](self: Zen[T, O], body) =
         template modified(obj: O): bool = change.item == obj and modified()
         template touched: bool = Touched in change.changes
         template touched(obj: O): bool = change.item == obj and touched()
+        template closed: bool = Closed in change.changes
 
         body
 
-proc untrack*(self: Zen, zid: ZID) =
-  self.changed_callbacks.del(zid)
+proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
+  if zid in self.changed_callbacks:
+    let callback = self.changed_callbacks[zid]
+    if zid notin self.paused_zids:
+      callback(@[Change[O](changes: {Closed})], zid)
+    self.changed_callbacks.del(zid)
 
-proc untrack_all*(self: Zen) =
+proc untrack_all*[T, O](self: Zen[T, O]) =
+  self.trigger_callbacks(@[Change[O](changes: {Closed})])
   self.changed_callbacks.clear
 
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
@@ -512,11 +525,12 @@ when is_main_module:
     s.untrack(zid)
     s.value = {Flag2, Flag3}
     check:
-      added == {Flag1, Flag4}
-      removed == {Flag3}
+      added == {}
+      removed == {}
       s.value == {Flag2, Flag3}
       also_added == {Flag2, Flag3}
       also_removed == {Flag1, Flag4}
+    s.untrack(zid)
     s.clear()
     check also_removed == {Flag2, Flag3}
 
@@ -613,12 +627,13 @@ when is_main_module:
 
     var changed = false
     id = buffers.track proc(changes, _: auto) =
-      changed = true
-      check changes.len == 2
-      check changes[0].changes == {Removed, Modified}
-      check not changes[0].item.value.is_nil
-      check changes[1].changes == {Added, Modified}
-      check changes[1].item.value.is_nil
+      if not changed:
+        changed = true
+        check changes.len == 2
+        check changes[0].changes == {Removed, Modified}
+        check not changes[0].item.value.is_nil
+        check changes[1].changes == {Added, Modified}
+        check changes[1].item.value.is_nil
     buffers[1] = nil
     check changed
     buffers.untrack(id)
@@ -752,3 +767,20 @@ when is_main_module:
 
     s.value = "vin"
     assert calls == 2
+
+  block closed:
+    var s = ZenValue[string].init
+    var changed = false
+
+    s.track proc(changes: auto) =
+      changed = true
+      check changes[0].changes == {Closed}
+    s.untrack_all
+    check changed == true
+
+    changed = false
+    let zid = s.track proc(changes: auto) =
+      changed = true
+      check changes[0].changes == {Closed}
+    s.untrack(zid)
+    check changed == true
