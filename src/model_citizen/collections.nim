@@ -8,7 +8,6 @@ type
 
   Zen*[T, O] = ref object
     tracked: T
-    changed_callback_zid: ZID
     link_zid: ZID
     paused_zids: set[ZID]
     track_children: bool
@@ -29,6 +28,9 @@ type
     item*: O
 
   Pair*[K, V] = tuple[key: K, value: V]
+
+var changed_callback_zid: ZID
+var close_procs: Table[ZID, proc()]
 
 proc contains*[T, O](self: Zen[T, O], child: O): bool =
   child in self.tracked
@@ -397,9 +399,12 @@ template `%`*(body: untyped): untyped =
   Zen.init(body)
 
 proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]], zid: ZID)): ZID {.discardable.} =
-  inc self.changed_callback_zid
-  result = self.changed_callback_zid
-  self.changed_callbacks[result] = callback
+  inc changed_callback_zid
+  let zid = changed_callback_zid
+  self.changed_callbacks[zid] = callback
+  close_procs[zid] = proc() =
+    self.untrack(zid)
+  result = zid
 
 proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]])): ZID {.discardable.} =
   self.track proc(changes, _: auto) = callback(changes)
@@ -425,11 +430,18 @@ proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
     let callback = self.changed_callbacks[zid]
     if zid notin self.paused_zids:
       callback(@[Change[O](changes: {Closed})], zid)
+    close_procs.del(zid)
     self.changed_callbacks.del(zid)
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
   self.trigger_callbacks(@[Change[O](changes: {Closed})])
+  for zid, _ in self.changed_callbacks:
+    close_procs.del(zid)
   self.changed_callbacks.clear
+
+proc untrack*(_: type Zen, zid: ZID) =
+  if zid in close_procs:
+    close_procs[zid]()
 
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   for item in self.tracked.items:
@@ -782,5 +794,5 @@ when is_main_module:
     let zid = s.track proc(changes: auto) =
       changed = true
       check changes[0].changes == {Closed}
-    s.untrack(zid)
+    Zen.untrack(zid)
     check changed == true
