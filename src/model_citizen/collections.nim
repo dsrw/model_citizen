@@ -1,4 +1,4 @@
-import std / [tables, sequtils, sugar, macros, genasts, typetraits, sets]
+import std / [tables, sequtils, sugar, macros, typetraits, sets]
 import pkg/print
 
 type
@@ -23,6 +23,7 @@ type
     field_name*: string
     triggered_by*: seq[BaseChange]
     triggered_by_type*: string
+    type_name*: string
 
   Change*[O] = ref object of BaseChange
     item*: O
@@ -31,6 +32,12 @@ type
 
 var changed_callback_zid: ZID
 var close_procs: Table[ZID, proc()]
+
+proc init[T](_: type Change, item: T, changes: set[ChangeKind], field_name = ""): Change[T] =
+  Change[T](item: item, changes: changes, type_name: $Change[T], field_name: field_name)
+
+proc init(_: type Change, T: type, changes: set[ChangeKind], field_name = ""): Change[T] =
+  Change[T](changes: changes, type_name: $Change[T], field_name: field_name)
 
 proc contains*[T, O](self: Zen[T, O], child: O): bool =
   child in self.tracked
@@ -93,7 +100,7 @@ proc link_child[K, V](self: ZenTable[K, V], child, obj: Pair[K, V], field_name =
       if changes.len == 1 and changes[0].changes == {Closed}:
         # Don't propagate Closed changes
         return
-      let change = Change[Pair[K, V]](item: pair, changes: {Modified}, field_name: field_name)
+      let change = Change.init(pair, {Modified})
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
@@ -112,7 +119,7 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
         # Don't propagate Closed changes
         return
 
-      let change = Change[obj.type](item: obj, changes: {Modified}, field_name: field_name)
+      let change = Change.init(obj, {Modified}, field_name = field_name)
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
@@ -128,11 +135,12 @@ proc unlink[T: Pair](pair: T) =
   pair.value.untrack(pair.value.link_zid)
   pair.value.link_zid = 0
 
+template deref(o: ref): untyped = o[]
+template deref(o: not ref): untyped = o
+
 proc link_or_unlink[T, O](self: Zen[T, O], change: Change[O], link: bool) =
   template value(change: Change[Pair]): untyped = change.item.value
   template value(change: not Change[Pair]): untyped = change.item
-  template deref(o: ref): untyped = o[]
-  template deref(o: not ref): untyped = o
 
   if self.track_children:
     if link:
@@ -163,23 +171,23 @@ proc process_changes[T](self: Zen[T, T], initial: T, touch = false) =
     var add_flags = {Added, Modified}
     if touch: add_flags.incl Touched
     self.trigger_callbacks(@[
-      Change[T](item: initial, changes: {Removed, Modified}),
-      Change[T](item: self.tracked, changes: add_flags),
+      Change.init(initial, {Removed, Modified}),
+      Change.init(self.tracked, add_flags)
     ])
   elif touch:
-    self.trigger_callbacks(@[Change[T](item: self.tracked, changes: {Touched})])
+    self.trigger_callbacks(@[Change.init(self.tracked, {Touched})])
 
 proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.default) =
   let added = (self.tracked - initial).map_it:
     let changes = if it in touch: {Touched} else: {}
-    Change[O](item: it, changes: {Added} + changes)
-  let removed = (initial - self.tracked).map_it Change[O](item: it, changes: {Removed})
+    Change.init(it, {Added} + changes)
+  let removed = (initial - self.tracked).map_it Change.init(it, {Removed})
   let changes = removed & added
 
   var touched: seq[Change[O]]
   for item in touch:
     if item in initial:
-      touched.add Change[O](item: item, changes: {Touched})
+      touched.add Change.init(item, {Touched})
 
   self.link_or_unlink(removed, false)
   self.link_or_unlink(added, true)
@@ -193,12 +201,12 @@ proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Ta
     added = (tracked - initial).map_it:
       var changes = {Added}
       if it.key in initial_table: changes.incl Modified
-      Change[Pair[K, V]](item: it, changes: changes)
+      Change.init(it, changes)
 
     removed = (initial - tracked).map_it:
       var changes = {Removed}
       if it.key in self.tracked: changes.incl Modified
-      Change[Pair[K, V]](item: it, changes: changes)
+      Change.init(it, changes)
 
   self.link_or_unlink(removed, false)
   self.link_or_unlink(added, true)
@@ -250,15 +258,15 @@ proc `value=`*[T, O](self: Zen[T, O], value: T) =
 proc value*[T, O](self: Zen[T, O]): T = self.tracked
 
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
-  result = self.tracked[index]
+  self.tracked[index]
 
 proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal): T =
   self.tracked[index]
 
 proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
   if key in self.tracked and self.tracked[key] != value:
-    let removed = Change[Pair[K, V]](item: (key, self.tracked[key]), changes: {Removed, Modified})
-    let added = Change[Pair[K, V]](item: (key, value), changes: {Added, Modified})
+    let removed = Change.init(Pair[K, V] (key, self.tracked[key]), {Removed, Modified})
+    let added = Change.init(Pair[K, V] (key, value), {Added, Modified})
     when value is Zen:
       if not removed.item.value.is_nil:
         self.link_or_unlink(removed, false)
@@ -266,7 +274,7 @@ proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
     self.tracked[key] = value
     self.trigger_callbacks(@[removed, added])
   elif key notin self.tracked:
-    let added = Change[Pair[K, V]](item: (key, value), changes: {Added})
+    let added = Change.init((key, value), {Added})
     when value is Zen:
       self.link_or_unlink(added, true)
     self.tracked[key] = value
@@ -278,14 +286,14 @@ proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T) =
 
 proc add*[T, O](self: Zen[T, O], value: O) =
   self.tracked.add value
-  let added = @[Change[O](item: value, changes: {Added})]
+  let added = @[Change.init(value, {Added})]
   self.link_or_unlink(added, true)
   self.trigger_callbacks(added)
 
 template remove(self, key, item_exp, fun) =
   let obj = item_exp
   self.tracked.fun key
-  let removed = @[Change[obj.type](item: obj, changes: {Removed})]
+  let removed = @[Change.init(obj, {Removed})]
   self.link_or_unlink(removed, false)
   self.trigger_callbacks(removed)
 
@@ -395,6 +403,14 @@ proc init*(_: type Zen, K, V: type, track_children = true): ZenTable[K, V] =
 proc init*[K, V](t: type Zen, tracked: open_array[(K, V)], track_children = true): ZenTable[K, V] =
   result = Zen.init(tracked.to_table, track_children = track_children)
 
+proc init*[T, O](self: var Zen[T, O]) =
+  self = Zen[T, O].init
+
+proc init_zen_fields*[T: object or ref](self: T) =
+  for _, val in self.deref.field_pairs:
+    when val is Zen:
+      val.init
+
 template `%`*(body: untyped): untyped =
   Zen.init(body)
 
@@ -429,12 +445,12 @@ proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
   if zid in self.changed_callbacks:
     let callback = self.changed_callbacks[zid]
     if zid notin self.paused_zids:
-      callback(@[Change[O](changes: {Closed})], zid)
+      callback(@[Change.init(O, {Closed})], zid)
     close_procs.del(zid)
     self.changed_callbacks.del(zid)
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
-  self.trigger_callbacks(@[Change[O](changes: {Closed})])
+  self.trigger_callbacks(@[Change.init(O, {Closed})])
   for zid, _ in self.changed_callbacks:
     close_procs.del(zid)
   self.changed_callbacks.clear
@@ -796,3 +812,18 @@ when is_main_module:
       check changes[0].changes == {Closed}
     Zen.untrack(zid)
     check changed == true
+
+  block init_props:
+    type
+      Model = ref object
+        list: ZenSeq[int]
+        field: string
+        zen_field: ZenValue[string]
+
+    proc init(_: type Model): Model =
+      result = Model()
+      result.init_zen_fields
+
+    let m = Model.init
+    m.zen_field.value = "test"
+    check m.zen_field.value == "test"
