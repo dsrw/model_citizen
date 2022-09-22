@@ -3,3 +3,5 @@ nimblecache/
 htmldocs/
 nimble.develop
 nimble.paths
+*.out
+*.out.dSYM
