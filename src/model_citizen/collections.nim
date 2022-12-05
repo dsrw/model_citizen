@@ -1,17 +1,19 @@
-import std / [tables, sequtils, sugar, macros, typetraits, sets]
+import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation, intsets, strformat]
+import pkg / threading / channels
 import pkg/print
 
 type
   ZID* = uint16
   ChangeKind* = enum
-    Added, Removed, Modified, Touched, Closed
+    Created, Added, Removed, Modified, Touched, Closed
 
   ZenBase = object of RootObj
     id: int
     link_zid: ZID
     paused_zids: set[ZID]
     track_children: bool
-    change_receiver: proc(self: ref ZenBase, changes: seq[BaseChange])
+    build_message: proc(self: ref ZenBase, change: BaseChange): Message
+    change_receiver: proc(self: ref ZenBase, msg: Message)
     ctx: ZenContext
 
   ZenObject[T, O] = object of ZenBase
@@ -32,6 +34,17 @@ type
     triggered_by_type*: string
     type_name*: string
 
+  MessageKind = enum
+    Create, Assign, Unassign
+
+  Wrapper[T] = ref object of RootRef
+    item: T
+
+  Message = object
+    kind: MessageKind
+    object_id: int
+    obj: ref RootObj
+
   Change*[O] = ref object of BaseChange
     item*: O
 
@@ -44,12 +57,14 @@ type
     objects: Table[int, ref ZenBase]
     subscribers: seq[ZenContext]
     name: string
-    publish: bool
+    skip_next_publish: bool
+    chan: Chan[Message]
 
 var active_ctx {.threadvar.}: ZenContext
 
-proc init*(_: type ZenContext, name = "default", publish = true): ZenContext =
-  ZenContext(name: name, publish: publish)
+proc init*(_: type ZenContext, name = "default"): ZenContext =
+  result = ZenContext(name: name)
+  result.chan = new_chan[Message]()
 
 proc ctx(): ZenContext =
   if active_ctx == nil:
@@ -191,14 +206,49 @@ proc link_or_unlink[T, O](self: Zen[T, O], changes: seq[Change[O]], link: bool) 
     for change in changes:
       self.link_or_unlink(change, link)
 
+proc recv(self: ZenContext) =
+  var msg: Message
+  while self.chan.try_recv(msg):
+    if msg.kind == Create:
+      let wrapper = Wrapper[proc(ctx: ZenContext)](msg.obj)
+      wrapper.item(self)
+    else:
+      let obj = self.objects[msg.object_id]
+      obj.change_receiver(obj, msg)
+
+# not threadsafe
+proc poll_subscribers(self: ZenContext) =
+  for ctx in self.subscribers:
+    ctx.recv
+
+proc publish_create[T, O](self: Zen[T, O]) =
+  var wrapper = Wrapper[proc(ctx: ZenContext)]()
+  let value = self.tracked.deep_copy
+
+  wrapper.item = proc(ctx: ZenContext) =
+    ctx.skip_next_publish = true
+    discard Zen.init(value, ctx = ctx)
+
+  for ctx in self.ctx.subscribers:
+    let msg = Message(kind: Create, obj: wrapper, object_id: self.id)
+    ctx.chan.send unsafe_isolate(msg)
+
+  self.ctx.poll_subscribers
+
 proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
-  if self.ctx.publish:
+  if self.ctx.skip_next_publish:
+    self.ctx.skip_next_publish = false
+  else:
     let id = self.id
     for ctx in self.ctx.subscribers:
-      assert id in ctx.objects
-      let obj = ctx.objects[id]
-      assert obj != self
-      obj.change_receiver(obj, cast[seq[BaseChange]](changes))
+      for change in changes:
+        if [Added, Removed, Created].any_it(it in change.changes):
+          assert id in ctx.objects
+          let obj = ctx.objects[id]
+          var msg = obj.build_message(obj, change)
+          msg.object_id = id
+          ctx.chan.send unsafe_isolate(msg)
+    self.ctx.poll_subscribers
 
 proc process_changes[T](self: Zen[T, T], initial: T, touch = false) =
   if initial != self.tracked:
@@ -302,7 +352,7 @@ proc value*[T, O](self: Zen[T, O]): T = self.tracked
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
   self.tracked[index]
 
-proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal): T =
+proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
   self.tracked[index]
 
 proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
@@ -354,17 +404,14 @@ proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
     remove(self, index, self.tracked[index], del)
 
 proc delete*[T, O](self: Zen[T, O], value: O) =
-  static: echo 1
   if value in self.tracked:
     remove(self, value, value, delete)
 
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
-  static: echo self.type, key.type
   if key in self.tracked:
     remove(self, key, (key: key, value: self.tracked[key]), delete)
 
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
-  static: echo 3
   if index < self.tracked.len:
     remove(self, index, self.tracked[index], delete)
 
@@ -407,7 +454,7 @@ proc `&=`*[T, O](self: Zen[T, O], value: O) =
 proc `==`*(a, b: Zen): bool =
   (a.is_nil and b.is_nil) or
     not a.is_nil and not b.is_nil and
-    a.tracked == b.tracked
+    a.id == b.id
 
 proc assign[O](self: ZenSeq[O], value: O) =
   self.add(value)
@@ -433,28 +480,49 @@ proc unassign[K, V](self: ZenTable[K, V], pair: Pair[K, V]) =
 proc unassign[T, O](self: Zen[T, O], value: O) =
   discard
 
-
 proc defaults[T, O](self: Zen[T, O], ctx: ZenContext): Zen[T, O] =
   ctx.last_id.inc
   self.id = ctx.last_id
   ctx.objects[self.id] = self
-  self.change_receiver = proc(self: ref ZenBase, changes: seq[BaseChange]) =
+
+  self.build_message = proc(self: ref ZenBase, change: BaseChange): Message =
+    assert Added in change.changes or Removed in change.changes
+    let change = Change[O](change)
+    when change.item is ZenBase:
+      var wrapper = Wrapper[int]()
+      wrapper.item = ZenBase(change.item).id
+    else:
+      var wrapper = Wrapper[change.item.type]()
+      wrapper.item = change.item
+    result.obj = wrapper
+
+    result.kind = if Added in change.changes: Assign else: Unassign
+
+  self.change_receiver = proc(self: ref ZenBase, msg: Message) =
     assert self of Zen[T, O]
     let self = Zen[T, O](self)
-    let changes = cast[seq[Change[O]]](changes)
+    when O is ZenBase:
+      let object_id = Wrapper[int](msg.obj).item
+      let item = self.ctx.objects[object_id]
+    else:
+      let item = Wrapper[O](msg.obj).item
 
-    self.ctx.publish = false
-    defer: self.ctx.publish = true
-
-    for change in changes:
-      print change
-      if Added in change.changes:
-        self.assign(change.item)
-      if Removed in change.changes:
-        self.unassign(change.item)
+    self.ctx.skip_next_publish = true
+    if msg.kind == Assign:
+      self.assign(item)
+    elif msg.kind == Unassign:
+      self.unassign(item)
+    else:
+      assert false, "Can't handle message " & $msg.kind
 
   assert self.ctx == nil
   self.ctx = ctx
+
+  # TODO: fix this. Skip next is usually a bad idea.
+  if self.ctx.skip_next_publish:
+    self.ctx.skip_next_publish = false
+  else:
+    self.publish_create
   self
 
 proc init*(T: type Zen, track_children = true, ctx = ctx()): T =
@@ -499,6 +567,9 @@ proc init*[K, V](_: type Zen, T: type Table[K, V], track_children = true, ctx = 
 proc init*(_: type Zen, K, V: type, track_children = true, ctx = ctx()): ZenTable[K, V] =
   result = ZenTable[K, V](track_children: track_children).defaults(ctx)
 
+proc `[]`*[T, O](self: ZenContext, src: Zen[T, O]): Zen[T, O] =
+  result = Zen[T, O](self.objects[src.id])
+
 proc init*[K, V](t: type Zen, tracked: open_array[(K, V)], track_children = true, ctx = ctx()): ZenTable[K, V] =
   result = Zen.init(tracked.to_table, track_children = track_children, ctx = ctx)
 
@@ -510,6 +581,12 @@ proc init_zen_fields*[T: object or ref](self: T, ctx = ctx()): T {. discardable 
   for _, val in self.deref.field_pairs:
     when val is Zen:
       val.init(ctx)
+
+proc init_from*[T: object or ref](_: type T, src: T, ctx = ctx()): T {. discardable .} =
+  result = T()
+  for name, dest, src in result.deref.field_pairs(src.deref):
+    when dest is Zen:
+      dest = ctx[src]
 
 template `%`*(body: untyped): untyped =
   Zen.init(body)
@@ -952,12 +1029,14 @@ when is_main_module:
       Tree = ref object
         zen: ZenValue[string]
         things: ZenSeq[Thing]
+        values: ZenSeq[ZenValue[string]]
 
     var
       src = Tree().init_zen_fields(ctx = ctx1)
-      dest = Tree().init_zen_fields(ctx = ctx2)
+      dest = Tree.init_from(src, ctx = ctx2)
 
     src.zen.value = "hello world"
+    assert src.zen.tracked == "hello world"
     assert dest.zen.value == "hello world"
 
     let thing = Thing(name: "Vin")
@@ -967,3 +1046,11 @@ when is_main_module:
 
     src.things -= thing
     assert dest.things.len == 0
+
+    var s3 = ZenValue[string].init(ctx = ctx1)
+    src.values += s3
+    s3.value = "hi"
+
+    assert dest.values[^1].value == "hi"
+
+    echo "done"

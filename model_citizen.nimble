@@ -1,11 +1,10 @@
 # Package
 
-version       = "0.7.4"
+version       = "0.8.0"
 author        = "Scott Wadden"
 description   = "Nothing for now"
 license       = "MIT"
 srcDir        = "src"
-
 
 # Dependencies
 
