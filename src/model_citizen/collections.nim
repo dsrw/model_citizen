@@ -62,13 +62,13 @@ type
 
 var active_ctx {.threadvar.}: ZenContext
 
-proc init*(_: type ZenContext, name = "default"): ZenContext =
+proc init*(_: type ZenContext, name = "default-" & $get_thread_id() ): ZenContext =
   result = ZenContext(name: name)
   result.chan = new_chan[Message]()
 
 proc ctx(): ZenContext =
   if active_ctx == nil:
-    active_ctx = ZenContext.init(name = "default")
+    active_ctx = ZenContext.init(name = "default-" & $get_thread_id() )
   active_ctx
 
 proc ctx(self: Zen) = self.ctx
