@@ -454,7 +454,7 @@ proc `&=`*[T, O](self: Zen[T, O], value: O) =
 proc `==`*(a, b: Zen): bool =
   (a.is_nil and b.is_nil) or
     not a.is_nil and not b.is_nil and
-    a.id == b.id
+    a.tracked == b.tracked
 
 proc assign[O](self: ZenSeq[O], value: O) =
   self.add(value)
