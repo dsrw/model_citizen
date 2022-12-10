@@ -21,7 +21,9 @@ template assert_changes[T, O](self: Zen[T, O], expect, body: untyped) =
   self.track proc(changes: seq[Change[O]]) =
     for change in changes:
       let expectation = expectations.pop_first()
-      if not (expectation[0] in change.changes and expectation[1] == change.item):
+      if not (expectation[0] in change.changes and
+        expectation[1] == change.item):
+
         print "unsatisfied expectation", expectation, change
   body
   if expectations.len > 0:

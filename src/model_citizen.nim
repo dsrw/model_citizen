@@ -19,7 +19,8 @@ type
 
   ZenObject[T, O] = object of ZenBase
     tracked: T
-    changed_callbacks: OrderedTable[ZID, proc(changes: seq[Change[O]], zid: ZID)]
+    changed_callbacks:
+      OrderedTable[ZID, proc(changes: seq[Change[O]], zid: ZID)]
 
   Zen*[T, O] = ref object of ZenObject[T, O]
 
@@ -63,7 +64,9 @@ type
 
 var active_ctx {.threadvar.}: ZenContext
 
-proc init*(_: type ZenContext, name = "thread-" & $get_thread_id() ): ZenContext =
+proc init*(_: type ZenContext,
+  name = "thread-" & $get_thread_id() ): ZenContext =
+
   result = ZenContext(name: name)
   result.chan = new_chan[Message]()
 
@@ -77,10 +80,15 @@ proc thread_ctx*(_: type Zen): ZenContext = ctx()
 proc `thread_ctx=`*(_: type Zen, ctx: ZenContext) =
   active_ctx = ctx
 
-proc init[T](_: type Change, item: T, changes: set[ChangeKind], field_name = ""): Change[T] =
-  Change[T](item: item, changes: changes, type_name: $Change[T], field_name: field_name)
+proc init[T](_: type Change, item: T,
+  changes: set[ChangeKind], field_name = ""): Change[T] =
 
-proc init(_: type Change, T: type, changes: set[ChangeKind], field_name = ""): Change[T] =
+  result = Change[T](item: item, changes: changes,
+    type_name: $Change[T], field_name: field_name)
+
+proc init(_: type Change,
+  T: type, changes: set[ChangeKind], field_name = ""): Change[T] =
+
   Change[T](changes: changes, type_name: $Change[T], field_name: field_name)
 
 proc contains*[T, O](self: Zen[T, O], child: O): bool =
@@ -137,7 +145,9 @@ template pause*(self: Zen, zids: varargs[ZID], body: untyped) =
 template pause*(self: Zen, body: untyped) =
   pause_impl(self, self.changed_callbacks.keys, body)
 
-proc link_child[K, V](self: ZenTable[K, V], child, obj: Pair[K, V], field_name = "") =
+proc link_child[K, V](self: ZenTable[K, V],
+  child, obj: Pair[K, V], field_name = "") =
+
   let field_name = field_name
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
     child.link_zid = child.track proc(changes: seq[Change[O]]) =
@@ -205,7 +215,9 @@ proc link_or_unlink[T, O](self: Zen[T, O], change: Change[O], link: bool) =
             if not val.is_nil:
               val.unlink
 
-proc link_or_unlink[T, O](self: Zen[T, O], changes: seq[Change[O]], link: bool) =
+proc link_or_unlink[T, O](self: Zen[T, O],
+  changes: seq[Change[O]], link: bool) =
+
   if self.track_children:
     for change in changes:
       self.link_or_unlink(change, link)
@@ -263,7 +275,9 @@ proc process_changes[T](self: Zen[T, T], initial: T, touch = false) =
     if publish:
       self.publish_changes(changes)
 
-proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.default) =
+proc process_changes[T: seq | set, O](self: Zen[T, O],
+  initial: T, touch = T.default) =
+
   let added = (self.tracked - initial).map_it:
     let changes = if it in touch: {Touched} else: {}
     Change.init(it, {Added} + changes)
@@ -281,7 +295,9 @@ proc process_changes[T: seq | set, O](self: Zen[T, O], initial: T, touch = T.def
   self.trigger_callbacks(changes)
   self.publish_changes(changes)
 
-proc process_changes[K, V](self: Zen[Table[K, V], Pair[K, V]], initial_table: Table[K, V]) =
+proc process_changes[K, V](self: Zen[Table[K, V],
+  Pair[K, V]], initial_table: Table[K, V]) =
+
   let
     tracked: seq[Pair[K, V]] = self.tracked.pairs.to_seq
     initial: seq[Pair[K, V]] = initial_table.pairs.to_seq
@@ -355,7 +371,9 @@ proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
 
 proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
   if key in self.tracked and self.tracked[key] != value:
-    let removed = Change.init(Pair[K, V] (key, self.tracked[key]), {Removed, Modified})
+    let removed = Change.init(
+      Pair[K, V] (key, self.tracked[key]), {Removed, Modified})
+
     let added = Change.init(Pair[K, V] (key, value), {Added, Modified})
     when value is Zen:
       if not removed.item.value.is_nil:
@@ -602,13 +620,17 @@ proc `[]`*[T, O](self: ZenContext, src: Zen[T, O]): Zen[T, O] =
 proc `[]`*(self: ZenContext, id: string): ref ZenBase =
   result = self.objects[id]
 
-proc init_zen_fields*[T: object or ref](self: T, ctx = ctx()): T {. discardable .} =
+proc init_zen_fields*[T: object or ref](self: T,
+  ctx = ctx()): T {. discardable .} =
+
   result = self
   for _, val in self.deref.field_pairs:
     when val is Zen:
       val.init(ctx)
 
-proc init_from*[T: object or ref](_: type T, src: T, ctx = ctx()): T {. discardable .} =
+proc init_from*[T: object or ref](_: type T,
+  src: T, ctx = ctx()): T {. discardable .} =
+
   result = T()
   for name, dest, src in result.deref.field_pairs(src.deref):
     when dest is Zen:
@@ -617,7 +639,9 @@ proc init_from*[T: object or ref](_: type T, src: T, ctx = ctx()): T {. discarda
 template `%`*(body: untyped): untyped =
   Zen.init(body)
 
-proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]], zid: ZID)): ZID {.discardable.} =
+proc track*[T, O](self: Zen[T, O],
+  callback: proc(changes: seq[Change[O]], zid: ZID)): ZID {.discardable.} =
+
   inc self.ctx.changed_callback_zid
   let zid = self.ctx.changed_callback_zid
   self.changed_callbacks[zid] = callback
@@ -625,7 +649,9 @@ proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]], zid: 
     self.untrack(zid)
   result = zid
 
-proc track*[T, O](self: Zen[T, O], callback: proc(changes: seq[Change[O]])): ZID {.discardable.} =
+proc track*[T, O](self: Zen[T, O],
+  callback: proc(changes: seq[Change[O]])): ZID {.discardable.} =
+
   self.track proc(changes, _: auto) = callback(changes)
 
 proc subscribe*(self: ZenContext, ctx: ZenContext) =
