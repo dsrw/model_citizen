@@ -1,4 +1,4 @@
-import std / [locks, os]
+import std / [locks, os, unittest]
 import pkg / [print]
 import model_citizen
 
@@ -29,7 +29,7 @@ proc start_worker(ctx: ZenContext) {.thread.} =
   while working:
     ctx.recv
 
-when is_main_module:
+test "basic":
   Zen.thread_ctx = ZenContext.init(name = "main")
   var ctx = ZenContext.init(name = "worker")
   Zen.thread_ctx.subscribe(ctx)
@@ -62,4 +62,3 @@ when is_main_module:
     Zen.thread_ctx.recv
 
   worker_thread.join_thread
-  echo "done"
