@@ -209,7 +209,7 @@ test "comparable aliases":
   check b is ZenTable[int, string]
   check a == b
   when compiles(a == c):
-    check false, "{a.type} and {b.type} shouldn't be comparable"
+    check false, &"{a.type} and {b.type} shouldn't be comparable"
 
 test "init from type":
   type TestFlag = enum
@@ -417,3 +417,23 @@ test "sync":
 
   ctx2.recv
   check dest.values[^1].value == "hi"
+
+test "delete":
+  var
+    ctx1 = ZenContext.init(name = "ctx1")
+    ctx2 = ZenContext.init(name = "ctx2")
+
+  ctx1.subscribe(ctx2)
+  ctx2.subscribe(ctx1)
+
+  var a = Zen.init("", ctx = ctx1)
+  check ctx1.len == 1
+  ctx2.recv
+  check ctx1.len == 1
+  check ctx2.len == 1
+
+  a.destroy
+  check ctx1.len == 0
+  ctx2.recv
+  check ctx1.len == 0
+  check ctx2.len == 0

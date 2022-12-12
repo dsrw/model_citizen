@@ -8,8 +8,12 @@ type
   ChangeKind* = enum
     Created, Added, Removed, Modified, Touched, Closed
 
+  MessageKind = enum
+    Create, Destroy, Assign, Unassign
+
   ZenBase = object of RootObj
     id: string
+    destroyed: bool
     link_zid: ZID
     paused_zids: set[ZID]
     track_children: bool
@@ -35,9 +39,6 @@ type
     triggered_by*: seq[BaseChange]
     triggered_by_type*: string
     type_name*: string
-
-  MessageKind = enum
-    Create, Assign, Unassign
 
   Wrapper[T] = ref object of RootRef
     item: T
@@ -91,24 +92,42 @@ proc init(_: type Change,
 
   Change[T](changes: changes, type_name: $Change[T], field_name: field_name)
 
+proc valid*(self: ref ZenBase): bool =
+  not (self == nil or self.destroyed)
+
 proc contains*[T, O](self: Zen[T, O], child: O): bool =
+  assert self.valid
   child in self.tracked
 
 proc contains*[K, V](self: ZenTable[K, V], key: K): bool =
+  assert self.valid
   key in self.tracked
 
 proc contains*[T, O](self: Zen[T, O], children: set[O] | seq[O]): bool =
+  assert self.valid
   result = true
   for child in children:
     if child notin self:
       return false
+
+proc contains*(self: ZenContext, zen: ref ZenBase): bool =
+  assert zen.valid
+  zen.id in self.objects
+
+proc contains*(self: ZenContext, id: string): bool =
+  id in self.objects
+
+proc len*(self: ZenContext): int =
+  self.objects.len
 
 proc `-`[T](a, b: seq[T]): seq[T] = a.filter proc(it: T): bool =
   it notin b
 
 template `&`[T](a, b: set[T]): set[T] = a + b
 
-proc len[T, O](self: Zen[T, O]): int = self.tracked.len
+proc len[T, O](self: Zen[T, O]): int =
+  assert self.valid
+  self.tracked.len
 
 proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
   if changes.len > 0:
@@ -118,6 +137,7 @@ proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
         callback(changes, zid)
 
 proc pause_changes*(self: Zen, zids: varargs[ZID]) =
+  assert self.valid
   if zids.len == 0:
     for zid in self.changed_callbacks.keys:
       self.paused_zids.incl(zid)
@@ -125,6 +145,7 @@ proc pause_changes*(self: Zen, zids: varargs[ZID]) =
     for zid in zids: self.paused_zids.incl(zid)
 
 proc resume_changes*(self: Zen, zids: varargs[ZID]) =
+  assert self.valid
   if zids.len == 0:
     self.paused_zids = {}
   else:
@@ -140,9 +161,11 @@ template pause_impl(self: Zen, zids: untyped, body: untyped) =
     self.paused_zids = previous
 
 template pause*(self: Zen, zids: varargs[ZID], body: untyped) =
+  assert self.valid
   pause_impl(self, zids, body)
 
 template pause*(self: Zen, body: untyped) =
+  assert self.valid
   pause_impl(self, self.changed_callbacks.keys, body)
 
 proc link_child[K, V](self: ZenTable[K, V],
@@ -229,6 +252,11 @@ proc recv*(self: ZenContext) =
     if msg.kind == Create:
       let wrapper = Wrapper[proc(ctx: ZenContext)](msg.obj)
       wrapper.item(self)
+    elif msg.kind == Destroy:
+      let obj = self.objects[msg.object_id]
+      assert obj.valid
+      obj.destroyed = true
+      self.objects.del(msg.object_id)
     else:
       let obj = self.objects[msg.object_id]
       obj.change_receiver(obj, msg)
@@ -243,6 +271,11 @@ proc publish_create[T, O](self: Zen[T, O]) =
 
   for ctx in self.ctx.subscribers:
     let msg = Message(kind: Create, obj: wrapper, object_id: self.id)
+    ctx.chan.send unsafe_isolate(msg)
+
+proc publish_destroy[T, O](self: Zen[T, O]) =
+  for ctx in self.ctx.subscribers:
+    let msg = Message(kind: Destroy, object_id: self.id)
     ctx.chan.send unsafe_isolate(msg)
 
 proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
@@ -353,23 +386,30 @@ proc change_and_touch[T, O](self: Zen[T, O], items: T, add: bool) =
       self.tracked = self.tracked - items
 
 proc clear*[T, O](self: Zen[T, O]) =
+  assert self.valid
   mutate:
     self.tracked = T.default
 
 proc `value=`*[T, O](self: Zen[T, O], value: T) =
+  assert self.valid
   if self.tracked != value:
     mutate:
       self.tracked = value
 
-proc value*[T, O](self: Zen[T, O]): T = self.tracked
+proc value*[T, O](self: Zen[T, O]): T =
+  assert self.valid
+  self.tracked
 
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
+  assert self.valid
   self.tracked[index]
 
 proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
+  assert self.valid
   self.tracked[index]
 
 proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
+  assert self.valid
   if key in self.tracked and self.tracked[key] != value:
     let removed = Change.init(
       Pair[K, V] (key, self.tracked[key]), {Removed, Modified})
@@ -389,10 +429,12 @@ proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
     self.trigger_callbacks(@[added])
 
 proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T) =
+  assert self.valid
   mutate:
     self.tracked[index] = value
 
 proc add*[T, O](self: Zen[T, O], value: O) =
+  assert self.valid
   self.tracked.add value
   let added = @[Change.init(value, {Added})]
   self.link_or_unlink(added, true)
@@ -408,69 +450,86 @@ template remove(self, key, item_exp, fun) =
   self.publish_changes(removed)
 
 proc del*[T, O](self: Zen[T, O], value: O) =
+  assert self.valid
   if value in self.tracked:
     remove(self, value, value, del)
 
 proc del*[K, V](self: ZenTable[K, V], key: K) =
+  assert self.valid
   if key in self.tracked:
     remove(self, key, (key: key, value: self.tracked[key]), del)
 
 proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
+  assert self.valid
   if index < self.tracked.len:
     remove(self, index, self.tracked[index], del)
 
 proc delete*[T, O](self: Zen[T, O], value: O) =
+  assert self.valid
   if value in self.tracked:
     remove(self, value, value, delete)
 
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
+  assert self.valid
   if key in self.tracked:
     remove(self, key, (key: key, value: self.tracked[key]), delete)
 
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
+  assert self.valid
   if index < self.tracked.len:
     remove(self, index, self.tracked[index], delete)
 
 proc touch*[T: set, O](self: Zen[T, O], value: O) =
+  assert self.valid
   self.change_and_touch({value}, true)
 
 proc touch*[T: seq, O](self: Zen[T, O], value: O) =
+  assert self.valid
   self.change_and_touch(@[value], true)
 
 proc touch*[T, O](self: Zen[T, O], value: T) =
+  assert self.valid
   self.change_and_touch(value, true)
 
 proc touch*[T](self: ZenValue[T], value: T) =
+  assert self.valid
   mutate_and_touch(touch = true):
     self.tracked = value
 
-proc len*(self: Zen): int = self.tracked.len
+proc len*(self: Zen): int =
+  assert self.valid
+  self.tracked.len
 
 proc `+=`*[T, O](self: Zen[T, O], value: T) =
+  assert self.valid
   self.change(value, true)
 
 proc `+=`*[O](self: ZenSet[O], value: O) =
+  assert self.valid
   self.change({value}, true)
 
 proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
+  assert self.valid
   self.add(value)
 
 proc `-=`*[T, O](self: Zen[T, O], value: T) =
+  assert self.valid
   self.change(value, false)
 
 proc `-=`*[T: set, O](self: Zen[T, O], value: O) =
+  assert self.valid
   self.change({value}, false)
 
 proc `-=`*[T: seq, O](self: Zen[T, O], value: O) =
+  assert self.valid
   self.change(@[value], false)
 
 proc `&=`*[T, O](self: Zen[T, O], value: O) =
+  assert self.valid
   self.value = self.value & value
 
 proc `==`*(a, b: Zen): bool =
-  (a.is_nil and b.is_nil) or
-    not a.is_nil and not b.is_nil and
-    a.tracked == b.tracked
+  a.is_nil == b.is_nil and a.destroyed == b.destroyed and a.tracked == b.tracked
 
 proc assign[O](self: ZenSeq[O], value: O) =
   self.add(value)
@@ -642,6 +701,7 @@ template `%`*(body: untyped): untyped =
 proc track*[T, O](self: Zen[T, O],
   callback: proc(changes: seq[Change[O]], zid: ZID)): ZID {.discardable.} =
 
+  assert self.valid
   inc self.ctx.changed_callback_zid
   let zid = self.ctx.changed_callback_zid
   self.changed_callbacks[zid] = callback
@@ -652,6 +712,7 @@ proc track*[T, O](self: Zen[T, O],
 proc track*[T, O](self: Zen[T, O],
   callback: proc(changes: seq[Change[O]])): ZID {.discardable.} =
 
+  assert self.valid
   self.track proc(changes, _: auto) = callback(changes)
 
 proc subscribe*(self: ZenContext, ctx: ZenContext) =
@@ -674,6 +735,7 @@ template changes*[T, O](self: Zen[T, O], body) =
         body
 
 proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
+  assert self.valid
   if zid in self.changed_callbacks:
     let callback = self.changed_callbacks[zid]
     if zid notin self.paused_zids:
@@ -682,6 +744,7 @@ proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
     self.changed_callbacks.del(zid)
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
+  assert self.valid
   self.trigger_callbacks(@[Change.init(O, {Closed})])
   for zid, _ in self.changed_callbacks:
     self.ctx.close_procs.del(zid)
@@ -691,14 +754,24 @@ proc untrack*(ctx: ZenContext, zid: ZID) =
   if zid in ctx.close_procs:
     ctx.close_procs[zid]()
 
+proc destroy*[T, O](self: Zen[T, O]) =
+  assert self.valid
+  self.untrack_all
+  self.destroyed = true
+  self.ctx.objects.del self.id
+  self.publish_destroy
+
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
+  assert self.valid
   for item in self.tracked.items:
     yield item
 
 iterator items*[K, V](self: ZenTable[K, V]): Pair[K, V] =
+  assert self.valid
   for pair in self.tracked.pairs:
     yield pair
 
 iterator pairs*[K, V](self: ZenTable[K, V]): Pair[K, V] =
+  assert self.valid
   for pair in self.tracked.pairs:
     yield pair
