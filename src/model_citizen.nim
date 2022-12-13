@@ -161,10 +161,12 @@ template pause_impl(self: Zen, zids: untyped, body: untyped) =
     self.paused_zids = previous
 
 template pause*(self: Zen, zids: varargs[ZID], body: untyped) =
+  mixin valid
   assert self.valid
   pause_impl(self, zids, body)
 
 template pause*(self: Zen, body: untyped) =
+  mixin valid
   assert self.valid
   pause_impl(self, self.changed_callbacks.keys, body)
 
@@ -544,10 +546,10 @@ proc assign[T, O](self: Zen[T, O], value: O) =
   self.value = value
 
 proc unassign[O](self: ZenSeq[O], value: O) =
-  self -= value
+  self.change(@[value], false)
 
 proc unassign[O](self: ZenSet[O], value: O) =
-  self -= value
+  self.change({value}, false)
 
 proc unassign[K, V](self: ZenTable[K, V], pair: Pair[K, V]) =
   self.del(pair.key)
