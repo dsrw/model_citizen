@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.8.3"
+version       = "0.9.0"
 author        = "Scott Wadden"
 description   = "Nothing for now"
 license       = "MIT"
@@ -8,6 +8,9 @@ srcDir        = "src"
 
 # Dependencies
 
-requires "nim >= 1.4.8",
-         "print >= 1.0.2",
-         "threading"
+requires(
+  "nim >= 1.4.8",
+  "print#b671140",
+  "threading",
+  "chronicles"
+)

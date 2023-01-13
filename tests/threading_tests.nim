@@ -29,36 +29,40 @@ proc start_worker(ctx: ZenContext) {.thread.} =
   while working:
     ctx.recv
 
-test "basic":
-  Zen.thread_ctx = ZenContext.init(name = "main")
-  var ctx = ZenContext.init(name = "worker")
-  Zen.thread_ctx.subscribe(ctx)
-  ctx.subscribe(Zen.thread_ctx)
+proc thread_tests =
+  test "basic":
+    Zen.thread_ctx.clear
+    Zen.thread_ctx = ZenContext.init(name = "main")
+    var ctx = ZenContext.init(name = "worker")
+    Zen.thread_ctx.subscribe(ctx)
+    ctx.subscribe(Zen.thread_ctx)
 
-  var a = Zen.init("", id = "t1")
-  global_lock.acquire()
-  worker_thread.create_thread(start_worker, ctx)
-  global_cond.wait(global_lock)
-  global_lock.release()
-  a.value = "scott"
-  var remaining = 1000
-  var working = true
-  a.changes:
-    if "marie".added:
-      a.value = "claire"
-    if "cal".added:
-      a.value = "vin"
-    if "banana".added:
-      a.value = "bacon"
-    if "ghetti".added:
-      remaining -= 1
-      if remaining == 0:
-        a.value = "done"
-        working = false
-      else:
-        a.value = "scott"
+    var a = Zen.init("", id = "t1")
+    global_lock.acquire()
+    worker_thread.create_thread(start_worker, ctx)
+    global_cond.wait(global_lock)
+    global_lock.release()
+    a.value = "scott"
+    var remaining = 1000
+    var working = true
+    a.changes:
+      if "marie".added:
+        a.value = "claire"
+      if "cal".added:
+        a.value = "vin"
+      if "banana".added:
+        a.value = "bacon"
+      if "ghetti".added:
+        remaining -= 1
+        if remaining == 0:
+          a.value = "done"
+          working = false
+        else:
+          a.value = "scott"
 
-  while working:
-    Zen.thread_ctx.recv
+    while working:
+      Zen.thread_ctx.recv
 
-  worker_thread.join_thread
+    worker_thread.join_thread
+
+thread_tests()
