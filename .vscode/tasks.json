@@ -13,6 +13,19 @@
           "kind": "build",
           "isDefault": true
       }
+    },
+    {
+      "label": "Build Tests",
+      "command": "nim",
+      "args": ["c", "--debugger:native", "--out:tests/tests.out", "tests/tests"],
+      "options": {
+          "cwd": "${workspaceRoot}"
+      },
+      "type": "shell",
+      "group": {
+          "kind": "build",
+          "isDefault": true
+      }
     }
   ]
 }

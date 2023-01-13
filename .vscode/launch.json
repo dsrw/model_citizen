@@ -17,6 +17,19 @@
       "presentation": {
         "clear": true                        // <-- this line
       }
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug Tests",
+      "program": "tests/tests.out",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Build Tests",
+      "initCommands": ["command source ${workspaceRoot}/.lldbinit"],
+      "presentation": {
+        "clear": true                        // <-- this line
+      }
     }
   ]
 }
