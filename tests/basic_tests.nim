@@ -509,4 +509,36 @@ proc main =
 
     check ru1.units[0].code.ctx == ctx2
 
+
+  test "table of tables":
+    type
+      Shared = ref object of RootObj
+        id: string
+        edits: ZenTable[int, Table[string, string]]
+
+    var
+      ctx1 = ZenContext.init(name = "ctx1")
+      ctx2 = ZenContext.init(name = "ctx2")
+
+    Zen.thread_ctx = ctx1
+
+    ctx1.subscribe(ctx2)
+    ctx2.subscribe(ctx1)
+
+    Zen.register_type(Shared)
+
+    var container: ZenValue[Shared]
+    container.init
+
+    var shared = Shared(id: "1")
+    shared.init_zen_fields
+
+    container.value = shared
+    container.value.edits[1] = init_table[string, string]()
+
+    ctx2.recv
+
+    var dest = type(container)(ctx2[container])
+    check 1 in container.value.edits
+
 main()

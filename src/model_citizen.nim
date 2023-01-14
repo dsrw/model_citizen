@@ -28,7 +28,7 @@ proc register_type*(_: type Zen, typ: type) =
     var self = typ(self)
     for _, val in self[].field_pairs:
       when val is Zen:
-        if val.id in ctx:
+        if not val.is_nil and val.id in ctx:
           val = type(val)(ctx[val.id])
     result = self
 
@@ -240,26 +240,35 @@ proc recv*(self: ZenContext) =
       let obj = self.objects[msg.object_id]
       obj.change_receiver(obj, msg)
 
+proc send*(self: Subscription, msg: sink Isolated[Message]) =
+  if not self.chan.try_send(msg):
+    raise_assert "channel full"
+
 proc publish_destroy[T, O](self: Zen[T, O]) =
   for sub in self.ctx.subscribers:
     when defined(zen_trace):
-      sub.chan.send: Message(
+      sub.send: isolate Message(
         kind: Destroy, object_id: self.id, trace: get_stack_trace())
     else:
-      sub.chan.send Message(kind: Destroy, object_id: self.id)
+      sub.send(isolate Message(kind: Destroy, object_id: self.id))
 
 proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
   let id = self.id
   for sub in self.ctx.subscribers:
     for change in changes:
       if [Added, Removed, Created, Touched].any_it(it in change.changes):
+        if Removed in change.changes and Modified in change.changes:
+          # An assign will trigger both an assign and an unassign on the other side.
+          # we only want to send a Removed message when an item is removed from a
+          # collection.
+          continue
         assert id in self.ctx.objects
         let obj = self.ctx.objects[id]
         var msg = obj.build_message(obj, change)
         msg.object_id = id
         when defined(zen_trace):
           msg.trace = get_stack_trace()
-        sub.chan.send unsafe_isolate(msg)
+        sub.send unsafe_isolate(msg)
 
 proc ref_id[T: ref RootObj](value: T): string {.inline.} =
   $value.type_id & ":" & $value.id
@@ -268,7 +277,7 @@ proc find_ref[T](self: ZenContext, value: var T): bool =
   if not value.is_nil:
     let id = value.ref_id
     if id in self.ref_pool:
-      value = cast[T](self.ref_pool[id].obj)
+      value = T(self.ref_pool[id].obj)
       result = true
 
 proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
@@ -290,14 +299,18 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
       if self.ref_pool[id].count == 0:
         self.ref_pool.del(id)
 
-proc process_changes[T](self: Zen[T, T], initial: T, touch = false) =
+proc process_changes[T](self: Zen[T, T], initial: sink T, touch = false) =
   let publish = not self.ctx.skip_next_publish
   self.ctx.skip_next_publish = false
   if initial != self.tracked:
     var add_flags = {Added, Modified}
-    if touch: add_flags.incl Touched
+    var del_flags = {Removed, Modified}
+    if touch:
+      add_flags.incl Touched
+      del_flags.incl Touched
+
     let changes = @[
-      Change.init(initial, {Removed, Modified}),
+      Change.init(initial, del_flags),
       Change.init(self.tracked, add_flags)
     ]
     when T isnot Zen and T is ref:
@@ -314,7 +327,7 @@ proc process_changes[T](self: Zen[T, T], initial: T, touch = false) =
       self.publish_changes(changes)
 
 proc process_changes[T: seq | set, O](self: Zen[T, O],
-    initial: T, touch = T.default) =
+    initial: sink T, touch = T.default) =
 
   let publish = not self.ctx.skip_next_publish
   self.ctx.skip_next_publish = false
@@ -339,7 +352,7 @@ proc process_changes[T: seq | set, O](self: Zen[T, O],
     self.publish_changes(changes)
 
 proc process_changes[K, V](self: Zen[Table[K, V],
-  Pair[K, V]], initial_table: Table[K, V]) =
+  Pair[K, V]], initial_table: sink Table[K, V]) =
 
   let
     tracked: seq[Pair[K, V]] = self.tracked.pairs.to_seq
@@ -427,12 +440,18 @@ proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
 proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool) =
   assert self.valid
 
+  template publish(changes) =
+    if self.ctx.skip_next_publish:
+      self.ctx.skip_next_publish = false
+    else:
+      self.publish_changes(changes)
+
   if key in self.tracked and self.tracked[key] != value:
     let removed = Change.init(
       Pair[K, V] (key, self.tracked[key]), {Removed, Modified})
 
     var flags = {Added, Modified}
-    if touch: flags.incl(Touched)
+    if touch: flags.incl Touched
     let added = Change.init(Pair[K, V] (key, value), flags)
     when value is Zen:
       if not removed.item.value.is_nil:
@@ -441,11 +460,15 @@ proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool) =
     self.tracked[key] = value
     let changes = @[removed, added]
     when V isnot Zen and V is ref:
-      self.ctx.ref_count(changes)
-    self.trigger_callbacks(changes)
+      self.ctx.ref_count changes
+    self.trigger_callbacks changes
+    publish changes
+
   elif key in self.tracked and touch:
-    let change = Change.init(Pair[K, V] (key, value), {Touched})
-    self.trigger_callbacks(@[change])
+    let changes = @[Change.init(Pair[K, V] (key, value), {Touched})]
+    self.trigger_callbacks changes
+    publish changes
+
   elif key notin self.tracked:
     let added = Change.init((key, value), {Added})
     when value is Zen:
@@ -453,8 +476,9 @@ proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool) =
     self.tracked[key] = value
     let changes = @[added]
     when V isnot Zen and V is ref:
-      self.ctx.ref_count(changes)
-    self.trigger_callbacks(changes)
+      self.ctx.ref_count changes
+    self.trigger_callbacks changes
+    publish changes
 
 proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V) =
   self.put(key, value, touch = false)
@@ -634,7 +658,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
       when defined(zen_trace):
         msg.trace = get_stack_trace()
 
-      sub.chan.send(unsafe_isolate msg)
+      sub.send(unsafe_isolate msg)
 
     if sub != Subscription.default:
       send_msg(sub)
@@ -656,7 +680,6 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
           if change.item.is_nil:
             wrapper.item = nil
           else:
-            let key = change.item.type_id
             var registered_type: RegisteredType
             if change.item.lookup_type(registered_type):
               wrapper.item = O(registered_type.clone(change.item))
@@ -664,7 +687,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
             else:
               debug "type not registered", type_name = change.item.base_type
 
-        debug "deep copy", item = change.item.type.name
+        debug "deep_copy", type = change.item.type.name
         wrapper.item = change.item.deep_copy
 
     result.obj = wrapper
@@ -678,7 +701,6 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
       raise_assert "Can't build message for changes " & $change.changes
 
   self.change_receiver = proc(self: ref ZenBase, msg: Message) =
-    debug "receiving", msg
     assert self of Zen[T, O]
     let self = Zen[T, O](self)
     when O is Zen:
