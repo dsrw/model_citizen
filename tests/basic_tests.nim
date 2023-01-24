@@ -16,6 +16,11 @@ proc main =
       echo ast_to_str(body)
       echo "Expected ", expected_count, " changes. Got ", change_count
 
+  template recv =
+    Zen.thread_ctx = ctx2
+    ctx2.recv
+    Zen.thread_ctx = ctx1
+
   template assert_changes[T, O](self: Zen[T, O], expect, body: untyped) =
     var expectations = expect.to_deque
     self.track proc(changes: seq[Change[O]]) {.gcsafe.} =
@@ -377,17 +382,19 @@ proc main =
     ctx2.subscribe(ctx1)
 
     var s1 = ZenValue[string].init(ctx = ctx1)
-    ctx2.recv
+    recv
     var s2 = ZenValue[string](ctx2[s1])
     check s2.ctx != nil
     s1.value = "sync me"
 
-    ctx2.recv
+    recv
+
     check s2.value == s1.value
 
     s1 &= " and me"
 
-    ctx2.recv
+    recv
+
     check s2.value == s1.value and s2.value == "sync me and me"
 
     type
@@ -406,17 +413,17 @@ proc main =
     Zen.register_type(Thing)
 
     var src = Tree().init_zen_fields(ctx = ctx1)
-    ctx2.recv
+    recv
     var dest = Tree.init_from(src, ctx = ctx2)
 
     src.zen.value = "hello world"
-    ctx2.recv
+    recv
     check src.zen.value == "hello world"
     check dest.zen.value == "hello world"
 
     let thing = Thing(id: "Vin")
     src.things += thing
-    ctx2.recv
+    recv
     check dest.things.len == 1
     check dest.things[0] != nil
     check dest.things[0].id == "Vin"
@@ -424,7 +431,7 @@ proc main =
     src.things -= thing
     check src.things.len == 0
 
-    ctx2.recv
+    recv
     check dest.things.len == 0
 
     var container = Container().init_zen_fields(ctx = ctx1)
@@ -436,25 +443,29 @@ proc main =
     container.thing2.value = t
 
     check container.thing1.value == container.thing2.value
-    ctx2.recv
+    recv
 
     check remote_container.thing1.value.id == container.thing1.value.id
     check remote_container.thing1.value == remote_container.thing2.value
     var s3 = ZenValue[string].init(ctx = ctx1)
     src.values += s3
     s3.value = "hi"
-    ctx2.recv
+    recv
     check dest.values[^1].value == "hi"
 
     var ctx3 = ZenContext.init(name = "ctx3")
+    Zen.thread_ctx = ctx3
     ctx3.subscribe(ctx2)
     ctx3.subscribe(ctx1)
+    Zen.thread_ctx = ctx1
     check ctx3.len == ctx1.len
     src.values += Zen.init("", ctx = ctx1)
     check ctx1.len != ctx2.len and ctx1.len != ctx3.len
-    ctx2.recv
+    recv
     check ctx1.len == ctx2.len and ctx1.len != ctx3.len
+    Zen.thread_ctx = ctx3
     ctx3.recv
+    Zen.thread_ctx = ctx1
     check ctx1.len == ctx2.len and ctx1.len == ctx3.len
 
   test "delete":
@@ -467,13 +478,13 @@ proc main =
 
     var a = Zen.init("", ctx = ctx1)
     check ctx1.len == 1
-    ctx2.recv
+    recv
     check ctx1.len == 1
     check ctx2.len == 1
 
     a.destroy
     check ctx1.len == 0
-    ctx2.recv
+    recv
     check ctx1.len == 0
     check ctx2.len == 0
 
@@ -500,17 +511,17 @@ proc main =
     u1.init_zen_fields
     u2.init_zen_fields
 
-    ctx2.recv
+    recv
 
     var ru1 = Unit.init_from(u1, ctx = ctx2)
 
     u1.units += u2
-    ctx2.recv
+    recv
 
     check ru1.units[0].code.ctx == ctx2
 
 
-  test "table of tables":
+  test "zentable of tables":
     type
       Shared = ref object of RootObj
         id: string
@@ -536,9 +547,48 @@ proc main =
     container.value = shared
     container.value.edits[1] = init_table[string, string]()
 
-    ctx2.recv
+    recv
 
     var dest = type(container)(ctx2[container])
     check 1 in container.value.edits
+
+  test "zentable of zentables":
+    type
+      Block = ref object of RootObj
+        id: string
+        chunks: ZenTable[int, ZenTable[string, string]]
+
+    var
+      ctx1 = ZenContext.init(name = "ctx1")
+      ctx2 = ZenContext.init(name = "ctx2")
+
+    Zen.thread_ctx = ctx1
+
+    ctx1.subscribe(ctx2)
+    ctx2.subscribe(ctx1)
+
+    var container: ZenValue[Block]
+    container.init
+
+    var shared = Block(id: "2")
+    shared.init_zen_fields
+
+    recv
+    var shared2 = Block.init_from(shared, ctx = ctx2)
+
+    shared.chunks[1] = ZenTable[string, string].init
+    shared.chunks[1]["hello"] = "world"
+    Zen.thread_ctx = ctx2
+    ctx2.recv
+
+    check addr(shared.chunks[]) != addr(shared2.chunks[])
+    check shared2.chunks[1]["hello"] == "world"
+
+    shared2.chunks[1]["hello"] = "goodbye"
+    Zen.thread_ctx = ctx1
+    ctx1.recv
+
+    check shared.chunks[1]["hello"] == "goodbye"
+
 
 main()

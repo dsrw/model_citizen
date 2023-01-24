@@ -106,6 +106,7 @@ proc len[T, O](self: Zen[T, O]): int =
   self.tracked.len
 
 proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
+  assert self.ctx == Zen.thread_ctx
   if changes.len > 0:
     let callbacks = self.changed_callbacks.dup
     for zid, callback in callbacks.pairs:
@@ -149,7 +150,6 @@ template pause*(self: Zen, body: untyped) =
 proc link_child[K, V](self: ZenTable[K, V],
   child, obj: Pair[K, V], field_name = "") =
 
-  let field_name = field_name
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
     child.link_zid = child.track proc(changes: seq[Change[O]]) =
       if changes.len == 1 and changes[0].changes == {Closed}:
@@ -671,8 +671,11 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
       Touched in change.changes
     let change = Change[O](change)
     when change.item is Zen:
-      var wrapper = Wrapper[string]()
-      wrapper.item = (ref ZenBase)(change.item).id
+      var wrapper = Wrapper[void](object_id: (ref ZenBase)(change.item).id)
+    elif change.item is Pair[any, Zen]:
+      # TODO: Properly sync ref keys
+      var wrapper = Wrapper[change.item.key.type](
+        item: change.item.key, object_id: change.item.value.id)
     else:
       var wrapper = Wrapper[O]()
       block registered:
@@ -704,8 +707,14 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
     assert self of Zen[T, O]
     let self = Zen[T, O](self)
     when O is Zen:
-      let object_id = Wrapper[string](msg.obj).item
+      let object_id = Wrapper[void](msg.obj).object_id
       let item = O(self.ctx.objects[object_id])
+    elif O is Pair[any, Zen]:
+      type K = O.get(0)
+      type V = O.get(1)
+      let wrapper = Wrapper[K](msg.obj)
+      let value = V(self.ctx.objects[wrapper.object_id])
+      let item = (key: wrapper.item, value: value)
     else:
       var item = Wrapper[O](msg.obj).item
       when item is ref RootObj:

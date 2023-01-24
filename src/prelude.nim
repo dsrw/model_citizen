@@ -41,6 +41,7 @@ type
 
   Wrapper[T] = ref object of RootObj
     item: T
+    object_id: string
 
   Message = object
     kind: MessageKind
@@ -117,7 +118,7 @@ proc init*(_: type ZenContext,
   name = "thread-" & $get_thread_id() ): ZenContext =
 
   result = ZenContext(name: name)
-  result.chan = new_chan[Message](elements = 2000)
+  result.chan = new_chan[Message](elements = 99999)
 
 proc ctx(): ZenContext =
   if active_ctx == nil:
