@@ -1,8 +1,9 @@
 import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
-  strformat, atomics, strutils, locks]
+  strformat, atomics, strutils, locks, monotimes, os, importutils]
+import std / times except local
 import pkg / [threading / channels, print]
 import typeids
-
+from pkg / threading / channels {.all.} import ChannelObj
 const chronicles_enabled {.strdefine.} = "off"
 
 when chronicles_enabled == "on":
@@ -30,7 +31,7 @@ type
     Created, Added, Removed, Modified, Touched, Closed
 
   MessageKind = enum
-    Create, Destroy, Assign, Unassign, Touch
+    Blank, Create, Destroy, Assign, Unassign, Touch
 
   BaseChange* = ref object of RootObj
     changes*: set[ChangeKind]
@@ -48,7 +49,9 @@ type
     object_id: string
     obj: ref RootObj
     when defined(zen_trace):
-      trace*: string
+      trace: string
+      id: int
+      src: string
 
   Change*[O] = ref object of BaseChange
     item*: O
@@ -61,13 +64,15 @@ type
 
   RegisteredType = object
     clone: proc(self: ref RootObj): ref RootObj {.noSideEffect.}
-    restore: proc(self: ref RootObj, ctx: ZenContext): ref RootObj {.noSideEffect.}
+    restore: proc(self: ref RootObj, ctx: ZenContext,
+        clone_from: ref RootObj = nil): ref RootObj {.no_side_effect.}
 
   Subscription = object
     chan: Chan[Message]
     ctx_name: string
 
   ZenContext* = ref object
+    chan_size: int
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]
@@ -77,6 +82,9 @@ type
     name*: string
     skip_next_publish: bool
     chan: Chan[Message]
+    freeable_refs: Table[string, MonoTime]
+    last_msg_id: Table[string, int]
+    last_received_id: Table[string, int]
 
   ZenBase = object of RootObj
     id: string
@@ -109,16 +117,18 @@ type_registry_lock.init_lock
 
 var active_ctx {.threadvar.}: ZenContext
 
+template local* {.pragma.}
+
 template with_lock(body: untyped) =
   {.cast(gcsafe).}:
     locks.with_lock(type_registry_lock):
       body
 
 proc init*(_: type ZenContext,
-  name = "thread-" & $get_thread_id() ): ZenContext =
+  name = "thread-" & $get_thread_id(), chan_size = 100 ): ZenContext =
 
-  result = ZenContext(name: name)
-  result.chan = new_chan[Message](elements = 99999)
+  result = ZenContext(name: name, chan_size: chan_size)
+  result.chan = new_chan[Message](elements = chan_size)
 
 proc ctx(): ZenContext =
   if active_ctx == nil:

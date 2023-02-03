@@ -1,7 +1,8 @@
 import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
-  unittest, deques]
+    unittest, deques, importutils, monotimes]
 import pkg/print
 import model_citizen
+from model_citizen {.all.} import ref_id, CountedRef
 
 proc main =
   var change_count = 0
@@ -400,6 +401,8 @@ proc main =
     type
       Thing = ref object of RootObj
         id: string
+        msg: ptr string
+        msg2 {.local.}: string
 
       Tree = ref object
         zen: ZenValue[string]
@@ -412,6 +415,8 @@ proc main =
 
     Zen.register_type(Thing)
 
+    var msg = "hello world"
+    var another_msg = "another"
     var src = Tree().init_zen_fields(ctx = ctx1)
     recv
     var dest = Tree.init_from(src, ctx = ctx2)
@@ -421,12 +426,15 @@ proc main =
     check src.zen.value == "hello world"
     check dest.zen.value == "hello world"
 
-    let thing = Thing(id: "Vin")
+    let thing = Thing(id: "Vin", msg: addr msg, msg2: "bye")
     src.things += thing
     recv
     check dest.things.len == 1
     check dest.things[0] != nil
     check dest.things[0].id == "Vin"
+    check dest.things[0].msg[] == msg
+    check dest.things[0].msg2 != "bye"
+    dest.things[0].msg2 = "keep"
 
     src.things -= thing
     check src.things.len == 0
@@ -434,6 +442,17 @@ proc main =
     recv
     check dest.things.len == 0
 
+    thing.msg = addr another_msg
+    thing.msg2 = "hi"
+    src.things += thing
+
+    recv
+
+    check dest.things[0].msg[] == another_msg
+    check dest.things[0].msg2 == "keep"
+    src.things -= thing
+
+    recv
     var container = Container().init_zen_fields(ctx = ctx1)
 
     var t = Thing(id: "Scott")
@@ -590,5 +609,85 @@ proc main =
 
     check shared.chunks[1]["hello"] == "goodbye"
 
+  test "free refs":
+    type
+      RefType = ref object of RootObj
+        id: string
+
+    var
+      ctx1 = ZenContext.init(name = "ctx1")
+      ctx2 = ZenContext.init(name = "ctx2")
+
+    Zen.thread_ctx = ctx1
+
+    ctx1.subscribe(ctx2)
+    ctx2.subscribe(ctx1)
+
+    Zen.register_type(RefType)
+
+    var src = ZenSeq[RefType].init
+
+    var obj = RefType(id: "1")
+
+    src += obj
+
+    recv
+    var dest = ZenSeq[RefType](ctx2[src])
+
+    private_access ZenContext
+    private_access CountedRef
+
+    check obj.ref_id in ctx1.ref_pool
+    check obj.ref_id in ctx2.ref_pool
+    check obj.ref_id notin ctx2.freeable_refs
+
+    let orig_dest_obj = RefType(ctx2.ref_pool[obj.ref_id].obj)
+    src -= obj
+    recv
+    check obj.ref_id in ctx2.ref_pool
+    check obj.ref_id in ctx2.freeable_refs
+    check ctx2.ref_pool[obj.ref_id].count == 0
+
+    src += obj
+    recv
+    check obj.ref_id in ctx2.ref_pool
+    check obj.ref_id in ctx2.freeable_refs
+    check ctx2.ref_pool[obj.ref_id].count == 1
+    check dest[0] == orig_dest_obj
+    src -= obj
+    recv
+
+    # after a timeout the unreferenced object will be removed
+    # from the dest ref_pool and freeable_refs, and if we add
+    # it back to src a new object will be created in dest
+    ctx2.freeable_refs[obj.ref_id] = MonoTime.low
+    recv
+    check obj.ref_id notin ctx2.ref_pool
+    check obj.ref_id notin ctx2.freeable_refs
+    check dest.len == 0
+
+    src += obj
+    recv
+    check dest[0].id == orig_dest_obj.id
+    check dest[0] != orig_dest_obj
+
+  test "sync pointer":
+    var
+      ctx1 = ZenContext.init(name = "ctx1")
+      ctx2 = ZenContext.init(name = "ctx2")
+
+    Zen.thread_ctx = ctx1
+
+    ctx1.subscribe(ctx2)
+    ctx2.subscribe(ctx1)
+
+    let msg = "hello world"
+    var src = ZenValue[ptr string].init
+    recv
+    var dest = ZenValue[ptr string](ctx2[src])
+    src.value = addr msg
+    check src.value[] == msg
+    recv
+    check dest.value[] == msg
 
 main()

@@ -11,7 +11,7 @@ proc register_type*(_: type Zen, typ: type) =
     let self = typ(self)
     var clone = new typ
     clone[] = self[]
-    for name, src, dest in self[].field_pairs(clone[]):
+    for src, dest in fields(self[], clone[]):
       when src is Zen:
         if not src.is_nil:
           var field = type(src)()
@@ -21,15 +21,29 @@ proc register_type*(_: type Zen, typ: type) =
         dest = nil
       elif (src is proc):
         dest = nil
+      elif src.has_custom_pragma(local):
+        dest = dest.type.default
 
     result = clone
 
-  let restore = func(self: ref RootObj, ctx: ZenContext): ref RootObj =
+  let restore = func(self: ref RootObj, ctx: ZenContext, clone_from: ref RootObj): ref RootObj =
     var self = typ(self)
-    for _, val in self[].field_pairs:
-      when val is Zen:
-        if not val.is_nil and val.id in ctx:
-          val = type(val)(ctx[val.id])
+    var orig: typ
+    if clone_from != nil:
+      orig = typ(clone_from)
+    if orig.is_nil:
+      for field in self[].fields:
+        when field is Zen:
+          if not field.is_nil and field.id in ctx:
+            field = type(field)(ctx[field.id])
+    else:
+      for src, dest in fields(orig[], self[]):
+        when src is Zen:
+          if not src.is_nil:
+            src = type(src)(ctx[src.id])
+        elif (src isnot proc) and src isnot ref and
+            not src.has_custom_pragma(local):
+          dest = src
     result = self
 
   with_lock:
@@ -64,11 +78,12 @@ proc init(_: type Change,
 
   Change[T](changes: changes, type_name: $Change[T], field_name: field_name)
 
+proc recv*(self: ZenContext, messages = int.high) {.gcsafe.}
+
 proc valid*[T: ref ZenBase](self: T): bool =
   not self.is_nil and not self.destroyed
 
 proc valid*[T: ref ZenBase, V: ref ZenBase](self: T, value: V): bool =
-  log_defaults
   self.valid and value.valid and self.ctx == value.ctx
 
 proc contains*[T, O](self: Zen[T, O], child: O): bool =
@@ -211,10 +226,10 @@ proc link_or_unlink[T, O](self: Zen[T, O], change: Change[O], link: bool) =
         if not change.value.is_nil:
           change.value.unlink
       elif change.value is object or change.value is ref:
-        for name, val in change.value.deref.field_pairs:
-          when val is Zen:
-            if not val.is_nil:
-              val.unlink
+        for field in change.value.deref.fields:
+          when field is Zen:
+            if not field.is_nil:
+              field.unlink
 
 proc link_or_unlink[T, O](self: Zen[T, O],
   changes: seq[Change[O]], link: bool) =
@@ -222,53 +237,6 @@ proc link_or_unlink[T, O](self: Zen[T, O],
   if self.track_children:
     for change in changes:
       self.link_or_unlink(change, link)
-
-proc recv*(self: ZenContext) =
-  var msg: Message
-  while self.chan.try_recv(msg):
-    debug "receiving", msg
-    self.skip_next_publish = true
-    if msg.kind == Create:
-      let wrapper = Wrapper[proc(ctx: ZenContext) {.gcsafe.}](msg.obj)
-      wrapper.item(self)
-    elif msg.kind == Destroy:
-      let obj = self.objects[msg.object_id]
-      assert obj.valid
-      obj.destroyed = true
-      self.objects.del(msg.object_id)
-    else:
-      let obj = self.objects[msg.object_id]
-      obj.change_receiver(obj, msg)
-
-proc send*(self: Subscription, msg: sink Isolated[Message]) =
-  if not self.chan.try_send(msg):
-    raise_assert "channel full"
-
-proc publish_destroy[T, O](self: Zen[T, O]) =
-  for sub in self.ctx.subscribers:
-    when defined(zen_trace):
-      sub.send: isolate Message(
-        kind: Destroy, object_id: self.id, trace: get_stack_trace())
-    else:
-      sub.send(isolate Message(kind: Destroy, object_id: self.id))
-
-proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
-  let id = self.id
-  for sub in self.ctx.subscribers:
-    for change in changes:
-      if [Added, Removed, Created, Touched].any_it(it in change.changes):
-        if Removed in change.changes and Modified in change.changes:
-          # An assign will trigger both an assign and an unassign on the other side.
-          # we only want to send a Removed message when an item is removed from a
-          # collection.
-          continue
-        assert id in self.ctx.objects
-        let obj = self.ctx.objects[id]
-        var msg = obj.build_message(obj, change)
-        msg.object_id = id
-        when defined(zen_trace):
-          msg.trace = get_stack_trace()
-        sub.send unsafe_isolate(msg)
 
 proc ref_id[T: ref RootObj](value: T): string {.inline.} =
   $value.type_id & ":" & $value.id
@@ -279,6 +247,18 @@ proc find_ref[T](self: ZenContext, value: var T): bool =
     if id in self.ref_pool:
       value = T(self.ref_pool[id].obj)
       result = true
+
+proc free_refs(self: ZenContext) =
+  var to_remove: seq[string]
+  for id, free_at in self.freeable_refs:
+    assert self.ref_pool[id].count >= 0
+    if self.ref_pool[id].count == 0 and free_at < get_mono_time():
+      self.ref_pool.del(id)
+      to_remove.add(id)
+    elif self.ref_pool[id].count > 0:
+      to_remove.add(id)
+  for id in to_remove:
+    self.freeable_refs.del(id)
 
 proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
   log_defaults
@@ -297,7 +277,93 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
       assert id in self.ref_pool
       dec self.ref_pool[id].count
       if self.ref_pool[id].count == 0:
-        self.ref_pool.del(id)
+        self.freeable_refs[id] = get_mono_time() + init_duration(seconds = 10)
+
+proc recv*(self: ZenContext, messages = int.high) {.gcsafe.} =
+  var msg: Message
+  var count = 0
+  self.free_refs
+  while count < messages and self.chan.peek > 0:
+    self.chan.recv(msg)
+    when defined(zen_trace):
+      let src = self.name & "-" & msg.src
+      if src in self.last_received_id:
+        if msg.id != self.last_received_id[src] + 1:
+          raise_assert &"src={src} msg.id={msg.id} last={self.last_received_id[src]}. Should be msg.id - 1"
+      self.last_received_id[src] = msg.id
+    inc count
+    debug "receiving", msg
+    self.skip_next_publish = true
+    if msg.kind == Create:
+      if msg.obj.is_nil:
+        error "create has nil proc"
+        when defined(zen_trace):
+          print "trace:", msg.trace
+      assert not msg.obj.is_nil
+      let wrapper = Wrapper[proc(ctx: ZenContext) {.gcsafe.}](msg.obj)
+      wrapper.item(self)
+    elif msg.kind == Destroy:
+      let obj = self.objects[msg.object_id]
+      assert obj.valid
+      obj.destroyed = true
+      self.objects.del(msg.object_id)
+    elif msg.kind != Blank:
+      let obj = self.objects[msg.object_id]
+      obj.change_receiver(obj, msg)
+    else:
+      raise_assert "Can't recv a blank message"
+
+proc remaining*(self: Chan): range[0.0..1.0] =
+  private_access Chan
+  private_access ChannelObj
+  let size = self.d[].size
+  result = 1.0 - self.peek / size
+
+proc pressure*(self: ZenContext): range[0.0..1.0] =
+  1.0 - (@[self.chan.remaining] & self.subscribers.map_it(it.chan.remaining)).min
+
+proc chan_full*(self: Chan): bool =
+  self.remaining < 0.1
+
+proc send*(self: ZenContext, sub: Subscription, msg: sink Isolated[Message]) =
+  when defined(zen_trace):
+    var a = msg.extract
+    a.src = self.name
+    if sub.ctx_name notin self.last_msg_id:
+      self.last_msg_id[sub.ctx_name] = 1
+    else:
+      self.last_msg_id[sub.ctx_name] += 1
+    a.id = self.last_msg_id[sub.ctx_name]
+
+    sub.chan.send(unsafe_isolate a)
+  else:
+    sub.chan.send(msg)
+
+proc publish_destroy[T, O](self: Zen[T, O]) =
+  for sub in self.ctx.subscribers:
+    when defined(zen_trace):
+      self.ctx.send:(sub, isolate Message(
+        kind: Destroy, object_id: self.id, trace: get_stack_trace()))
+    else:
+      self.ctx.send(sub, isolate Message(kind: Destroy, object_id: self.id))
+
+proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
+  let id = self.id
+  for sub in self.ctx.subscribers:
+    for change in changes:
+      if [Added, Removed, Created, Touched].any_it(it in change.changes):
+        if Removed in change.changes and Modified in change.changes:
+          # An assign will trigger both an assign and an unassign on the other side.
+          # we only want to send a Removed message when an item is removed from a
+          # collection.
+          continue
+        assert id in self.ctx.objects
+        let obj = self.ctx.objects[id]
+        var msg = obj.build_message(obj, change)
+        msg.object_id = id
+        when defined(zen_trace):
+          msg.trace = get_stack_trace()
+        self.ctx.send sub, unsafe_isolate(msg)
 
 proc process_changes[T](self: Zen[T, T], initial: sink T, touch = false) =
   let publish = not self.ctx.skip_next_publish
@@ -647,9 +713,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
     let value = self.tracked.deep_copy
     let id = self.id
     let track_children = self.track_children
-    let type_name = self.type.name
 
-    template send_msg(sub) =
+    template send_msg(src_ctx, sub) =
       var msg = Message(kind: Create,
         obj: Wrapper[proc(ctx: ZenContext)](item: proc(ctx: ZenContext) =
           discard Zen.init(value, ctx = ctx, id = id, track_children = track_children)
@@ -658,13 +723,13 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
       when defined(zen_trace):
         msg.trace = get_stack_trace()
 
-      sub.send(unsafe_isolate msg)
+      src_ctx.send(sub, unsafe_isolate msg)
 
     if sub != Subscription.default:
-      send_msg(sub)
+      ctx.send_msg(sub)
     if broadcast:
       for sub in self.ctx.subscribers:
-        send_msg(sub)
+        ctx.send_msg(sub)
 
   self.build_message = proc(self: ref ZenBase, change: BaseChange): Message =
     assert Added in change.changes or Removed in change.changes or
@@ -708,11 +773,16 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
     let self = Zen[T, O](self)
     when O is Zen:
       let object_id = Wrapper[void](msg.obj).object_id
+      assert object_id in self.ctx.objects
       let item = O(self.ctx.objects[object_id])
     elif O is Pair[any, Zen]:
       type K = O.get(0)
       type V = O.get(1)
       let wrapper = Wrapper[K](msg.obj)
+      if wrapper.object_id notin self.ctx.objects:
+        when defined(zen_trace):
+          echo msg.trace
+        raise_assert "object not in context " & wrapper.object_id & " " & $Zen[T, O]
       let value = V(self.ctx.objects[wrapper.object_id])
       let item = (key: wrapper.item, value: value)
     else:
@@ -721,10 +791,13 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
         if not item.is_nil:
           var registered_type: RegisteredType
           if item.lookup_type(registered_type):
+            let orig = item
             if not self.ctx.find_ref(item):
               item = type(item)(registered_type.restore(item, self.ctx))
               debug "item restored", item = item.type.name
             else:
+              item = type(item)(registered_type.restore(
+                item, self.ctx, clone_from = orig))
               debug "item found", item = item.type.name
 
     if msg.kind == Assign:
@@ -755,7 +828,7 @@ proc init*(_: type Zen,
 
   result = Zen[T, T](track_children: track_children).defaults(ctx, id)
 
-proc init*[T: ref | object | SomeOrdinal | SomeNumber | string](_: type Zen,
+proc init*[T: ref | object | SomeOrdinal | SomeNumber | string | ptr](_: type Zen,
   tracked: T, track_children = true, ctx = ctx(), id = ""): Zen[T, T] =
 
   var self = Zen[T, T](track_children: track_children).defaults(ctx, id)
@@ -826,15 +899,15 @@ proc init_zen_fields*[T: object or ref](self: T,
   ctx = ctx()): T {.discardable.} =
 
   result = self
-  for _, val in self.deref.field_pairs:
-    when val is Zen:
-      val.init(ctx)
+  for field in fields(self.deref):
+    when field is Zen:
+      field.init(ctx)
 
 proc init_from*[T: object or ref](_: type T,
   src: T, ctx = ctx()): T {.discardable.} =
 
   result = T()
-  for name, dest, src in result.deref.field_pairs(src.deref):
+  for src, dest in fields(src.deref, result.deref):
     when dest is Zen:
       dest = ctx[src]
 
@@ -861,9 +934,9 @@ proc track*[T, O](self: Zen[T, O],
   result = zid
 
 proc subscribe*(self: ZenContext, ctx: ZenContext) =
-  ctx.subscribers.add Subscription(chan: self.chan, ctx_name: ctx.name)
+  ctx.subscribers.add Subscription(chan: self.chan, ctx_name: self.name)
   for id, zen in ctx.objects:
-    zen.publish_create Subscription(chan: self.chan, ctx_name: ctx.name)
+    zen.publish_create Subscription(chan: self.chan, ctx_name: self.name)
   self.recv
 
 template changes*[T, O](self: Zen[T, O], body) =
