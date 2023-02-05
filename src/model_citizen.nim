@@ -28,22 +28,10 @@ proc register_type*(_: type Zen, typ: type) =
 
   let restore = func(self: ref RootObj, ctx: ZenContext, clone_from: ref RootObj): ref RootObj =
     var self = typ(self)
-    var orig: typ
-    if clone_from != nil:
-      orig = typ(clone_from)
-    if orig.is_nil:
-      for field in self[].fields:
-        when field is Zen:
-          if not field.is_nil and field.id in ctx:
-            field = type(field)(ctx[field.id])
-    else:
-      for src, dest in fields(orig[], self[]):
-        when src is Zen:
-          if not src.is_nil:
-            src = type(src)(ctx[src.id])
-        elif (src isnot proc) and src isnot ref and
-            not src.has_custom_pragma(local):
-          dest = src
+    for field in self[].fields:
+      when field is Zen:
+        if not field.is_nil and field.id in ctx:
+          field = type(field)(ctx[field.id])
     result = self
 
   with_lock:
@@ -796,8 +784,6 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string): Zen[T, O] {.g
               item = type(item)(registered_type.restore(item, self.ctx))
               debug "item restored", item = item.type.name
             else:
-              item = type(item)(registered_type.restore(
-                item, self.ctx, clone_from = orig))
               debug "item found", item = item.type.name
 
     if msg.kind == Assign:

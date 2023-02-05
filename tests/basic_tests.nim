@@ -401,8 +401,6 @@ proc main =
     type
       Thing = ref object of RootObj
         id: string
-        msg: ptr string
-        msg2 {.local.}: string
 
       Tree = ref object
         zen: ZenValue[string]
@@ -426,15 +424,12 @@ proc main =
     check src.zen.value == "hello world"
     check dest.zen.value == "hello world"
 
-    let thing = Thing(id: "Vin", msg: addr msg, msg2: "bye")
+    let thing = Thing(id: "Vin")
     src.things += thing
     recv
     check dest.things.len == 1
     check dest.things[0] != nil
     check dest.things[0].id == "Vin"
-    check dest.things[0].msg[] == msg
-    check dest.things[0].msg2 != "bye"
-    dest.things[0].msg2 = "keep"
 
     src.things -= thing
     check src.things.len == 0
@@ -442,17 +437,6 @@ proc main =
     recv
     check dest.things.len == 0
 
-    thing.msg = addr another_msg
-    thing.msg2 = "hi"
-    src.things += thing
-
-    recv
-
-    check dest.things[0].msg[] == another_msg
-    check dest.things[0].msg2 == "keep"
-    src.things -= thing
-
-    recv
     var container = Container().init_zen_fields(ctx = ctx1)
 
     var t = Thing(id: "Scott")
