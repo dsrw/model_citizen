@@ -80,7 +80,6 @@ type
     ref_pool: Table[string, CountedRef]
     subscribers: seq[Subscription]
     name*: string
-    skip_next_publish: bool
     chan: Chan[Message]
     freeable_refs: Table[string, MonoTime]
     last_msg_id: Table[string, int]
@@ -94,7 +93,7 @@ type
     track_children: bool
     build_message: proc(self: ref ZenBase, change: BaseChange): Message {.gcsafe.}
     publish_create: proc(sub = Subscription.default, broadcast = false) {.gcsafe.}
-    change_receiver: proc(self: ref ZenBase, msg: Message) {.gcsafe.}
+    change_receiver: proc(self: ref ZenBase, msg: Message, publish: bool) {.gcsafe.}
     ctx*: ZenContext
 
   ZenObject[T, O] = object of ZenBase

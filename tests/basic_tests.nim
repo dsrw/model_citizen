@@ -21,6 +21,7 @@ proc main =
     Zen.thread_ctx = ctx2
     ctx2.recv
     Zen.thread_ctx = ctx1
+    ctx1.recv
 
   template assert_changes[T, O](self: Zen[T, O], expect, body: untyped) =
     var expectations = expect.to_deque
@@ -669,9 +670,100 @@ proc main =
     var src = ZenValue[ptr string].init
     recv
     var dest = ZenValue[ptr string](ctx2[src])
-    src.value = addr msg
+    src.value = unsafe_addr msg
     check src.value[] == msg
     recv
     check dest.value[] == msg
+
+  test "sync set":
+    type Flags = enum
+      One, Two, Three
+
+    var
+      ctx1 = ZenContext.init(name = "ctx1")
+      ctx2 = ZenContext.init(name = "ctx2")
+
+    Zen.thread_ctx = ctx1
+
+    ctx1.subscribe(ctx2)
+    ctx2.subscribe(ctx1)
+
+    let msg = "hello world"
+    var src = ZenSet[Flags].init
+    recv
+    var dest = ZenSet[Flags](ctx2[src])
+    src += One
+    recv
+    check dest.value == {One}
+    Zen.thread_ctx = ctx2
+    dest += Two
+    Zen.thread_ctx = ctx1
+    ctx1.recv
+    recv
+    check src.value == {One, Two}
+
+  test "triggered by sync":
+    type
+      UnitFlags = enum
+        Targeted, Highlighted
+
+      SyncUnit = ref object of RootRef
+        id: int
+        parent: SyncUnit
+        units: ZenSeq[SyncUnit]
+
+      State = ref object
+        units: ZenSeq[SyncUnit]
+        active: SyncUnit
+
+    Zen.register_type(SyncUnit)
+
+    var
+      ctx1 = ZenContext.init(name = "ctx1")
+      ctx2 = ZenContext.init(name = "ctx2")
+
+    Zen.thread_ctx = ctx1
+
+    ctx1.subscribe(ctx2)
+    ctx2.subscribe(ctx1)
+
+    var src = State().init_zen_fields
+    recv
+    var dest = State.init_from(src, ctx = ctx2)
+    var src_change_id = 0
+    var dest_change_id = 0
+    src.units.changes:
+      var change = change
+      while change.triggered_by.len > 0:
+        change = Change[SyncUnit](change.triggered_by[0])
+      src_change_id = change.item.id
+
+    dest.units.changes:
+      var change = change
+      while change.triggered_by.len > 0:
+        change = Change[SyncUnit](change.triggered_by[0])
+      dest_change_id = change.item.id
+
+    let base = SyncUnit(id: 1).init_zen_fields
+    src.units.add base
+    recv
+
+    let child = SyncUnit(id: 3).init_zen_fields
+    recv
+    src_change_id = 0
+    dest_change_id = 0
+    base.units.add child
+
+    recv
+    check src_change_id == 3
+    check dest_change_id == 3
+
+    Zen.thread_ctx = ctx2
+    let grandchild = SyncUnit(id: 4).init_zen_fields(ctx = ctx2)
+    dest.units[0].units.add grandchild
+
+    recv
+    check src_change_id == 4
+    check dest_change_id == 4
 
 main()
