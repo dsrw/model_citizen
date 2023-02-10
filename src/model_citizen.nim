@@ -191,11 +191,13 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
     link(child)
 
 proc unlink(self: Zen) =
+  log_defaults
   debug "unlinking", id = self.id, zid = self.link_zid
   self.untrack(self.link_zid)
   self.link_zid = 0
 
 proc unlink[T: Pair](pair: T) =
+  log_defaults
   debug "unlinking", id = pair.value.id, zid = pair.value.link_zid
   pair.value.untrack(pair.value.link_zid)
   pair.value.link_zid = 0
@@ -378,7 +380,6 @@ proc process_changes[T](self: Zen[T, T], initial: sink T, touch = false,
     var del_flags = {Removed, Modified}
     if touch:
       add_flags.incl Touched
-      del_flags.incl Touched
 
     let changes = @[
       Change.init(initial, del_flags),
