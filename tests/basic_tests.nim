@@ -656,25 +656,6 @@ proc main =
     check dest[0].id == orig_dest_obj.id
     check dest[0] != orig_dest_obj
 
-  test "sync pointer":
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
-
-    Zen.thread_ctx = ctx1
-
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
-
-    let msg = "hello world"
-    var src = ZenValue[ptr string].init
-    recv
-    var dest = ZenValue[ptr string](ctx2[src])
-    src.value = unsafe_addr msg
-    check src.value[] == msg
-    recv
-    check dest.value[] == msg
-
   test "sync set":
     type Flags = enum
       One, Two, Three
@@ -766,4 +747,5 @@ proc main =
     check src_change_id == 4
     check dest_change_id == 4
 
+Zen.system_init
 main()

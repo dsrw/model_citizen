@@ -1,10 +1,10 @@
 # Package
 
-version       = "0.9.7"
+version       = "0.10.0"
 author        = "Scott Wadden"
 description   = "Nothing for now"
 license       = "MIT"
-srcDir        = "src"
+src_dir       = "src"
 
 # Dependencies
 
@@ -12,5 +12,6 @@ requires(
   "nim >= 1.4.8",
   "print#b671140",
   "threading",
-  "chronicles"
+  "chronicles",
+  "flatty"
 )

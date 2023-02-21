@@ -7,7 +7,7 @@ proc register_type*(_: type Zen, typ: type) =
   with_lock:
     assert key notin type_registry[], "Type already registered"
 
-  let clone = func(self: ref RootObj): ref RootObj =
+  let stringify = func(self: ref RootObj): string=
     let self = typ(self)
     var clone = new typ
     clone[] = self[]
@@ -24,10 +24,13 @@ proc register_type*(_: type Zen, typ: type) =
       elif src.has_custom_pragma(local):
         dest = dest.type.default
 
-    result = clone
+    result = clone.to_flatty
 
-  let restore = func(self: ref RootObj, ctx: ZenContext, clone_from: ref RootObj): ref RootObj =
-    var self = typ(self)
+  let parse = func(self: ref RootObj, ctx: ZenContext, clone_from: string): ref RootObj =
+
+    var self: typ
+    {.cast(no_side_effect).}:
+      self = clone_from.from_flatty(typ)
     for field in self[].fields:
       when field is Zen:
         if not field.is_nil and field.id in ctx:
@@ -35,10 +38,10 @@ proc register_type*(_: type Zen, typ: type) =
     result = self
 
   with_lock:
-    type_registry[][key] = RegisteredType(clone: clone, restore: restore)
+    type_registry[][key] = RegisteredType(stringify: stringify, parse: parse, ref_id: key)
 
-proc lookup_type(obj: ref RootObj, registered_type: var RegisteredType): bool =
-  let key = obj.type_id
+proc lookup_type(obj: ref RootObj, registered_type: var RegisteredType, key = 0): bool =
+  let key = if key == 0: obj.type_id else: key
   if key in local_type_registry:
     registered_type = local_type_registry[key]
     result = true
@@ -50,6 +53,37 @@ proc lookup_type(obj: ref RootObj, registered_type: var RegisteredType): bool =
         result = true
   if not result:
     debug "type not registered", type_name = obj.base_type
+
+proc to_flatty*[T, O](s: var string, zen: Zen[T, O]) =
+  s.to_flatty zen.is_nil
+  if not zen.is_nil:
+    s.to_flatty zen.id
+
+proc to_flatty*(s: var string, x: proc) =
+  discard
+
+proc from_flatty*(s: string, i: var int, p: proc) =
+  discard
+
+proc to_flatty*(s: var string, p: ptr) =
+  discard
+
+proc to_flatty*(s: var string, p: pointer) =
+  discard
+
+proc from_flatty*(s: string, i: var int, p: pointer) =
+  discard
+
+proc from_flatty*(s: string, i: var int, p: ptr) =
+  discard
+
+proc from_flatty*[T, O](s: string, i: var int, zen: var Zen[T, O]) =
+  var is_nil: bool
+  s.from_flatty(i, is_nil)
+  if not is_nil:
+    var id: string
+    s.from_flatty(i, id)
+    zen = zen.type()(Zen.thread_ctx.objects[id])
 
 proc clear*(self: ZenContext) =
   debug "Clearing ZenContext"
@@ -296,7 +330,9 @@ proc recv*(self: ZenContext,
     get_mono_time() + duration
 
   while count < messages and self.chan.peek > 0 and get_mono_time() < timeout:
-    self.chan.recv(msg)
+    var bin: string
+    self.chan.recv(bin)
+    msg = bin.from_flatty(Message)
     when defined(zen_trace):
       let src = self.name & "-" & msg.src
       if src in self.last_received_id:
@@ -307,16 +343,12 @@ proc recv*(self: ZenContext,
     debug "receiving", msg
 
     if msg.kind == Create:
-      if msg.obj.is_nil:
 
-        when defined(zen_trace):
-          error "create has nil proc", trace = msg.trace
-        else:
-          error "create has nil proc"
-
-      assert not msg.obj.is_nil
-      let wrapper = Wrapper[proc(ctx: ZenContext, publish: bool) {.gcsafe.}](msg.obj)
-      wrapper.item(self, publish = false)
+      assert msg.obj != ""
+      {.cast(gcsafe).}:
+        let fn = type_initializers[msg.type_id]
+        let args = msg.obj.from_flatty(CreatePayload)
+        fn(args.bin, self, msg.object_id, args.track_children, false)
     elif msg.kind == Destroy:
       let obj = self.objects[msg.object_id]
       assert obj.valid
@@ -340,27 +372,26 @@ proc pressure*(self: ZenContext): range[0.0..1.0] =
 proc chan_full*(self: Chan): bool =
   self.remaining < 0.1
 
-proc send*(self: ZenContext, sub: Subscription, msg: sink Isolated[Message]) =
+proc send*(self: ZenContext, sub: Subscription, msg: sink Message) =
   when defined(zen_trace):
-    var a = msg.extract
-    a.src = self.name
+    msg.src = self.name
     if sub.ctx_name notin self.last_msg_id:
       self.last_msg_id[sub.ctx_name] = 1
     else:
       self.last_msg_id[sub.ctx_name] += 1
-    a.id = self.last_msg_id[sub.ctx_name]
+    msg.id = self.last_msg_id[sub.ctx_name]
 
-    sub.chan.send(unsafe_isolate a)
+    sub.chan.send(msg.to_flatty)
   else:
-    sub.chan.send(msg)
+    sub.chan.send(msg.to_flatty)
 
 proc publish_destroy[T, O](self: Zen[T, O]) =
   for sub in self.ctx.subscribers:
     when defined(zen_trace):
-      self.ctx.send:(sub, isolate Message(
+      self.ctx.send(sub, Message(
         kind: Destroy, object_id: self.id, trace: get_stack_trace()))
     else:
-      self.ctx.send(sub, isolate Message(kind: Destroy, object_id: self.id))
+      self.ctx.send(sub, Message(kind: Destroy, object_id: self.id))
 
 proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
   let id = self.id
@@ -374,11 +405,12 @@ proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
           continue
         assert id in self.ctx.objects
         let obj = self.ctx.objects[id]
-        var msg = obj.build_message(obj, change)
-        msg.object_id = id
-        when defined(zen_trace):
-          msg.trace = get_stack_trace()
-        self.ctx.send sub, unsafe_isolate(msg)
+        let trace = when defined(zen_trace):
+          get_stack_trace()
+        else:
+          ""
+        var msg = obj.build_message(obj, change, id, trace)
+        self.ctx.send(sub, msg)
 
 proc process_changes[T](self: Zen[T, T], initial: sink T, touch = false,
     publish_changes: bool) =
@@ -730,24 +762,38 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
   ctx.objects[self.id] = self
 
-  self.publish_create = proc(sub: Subscription, broadcast: bool) =
-    let value = self.tracked.deep_copy
+  self.publish_create = proc(sub: Subscription, broadcast: bool) {.gcsafe.} =
+    let bin = self.tracked.to_flatty
+    let value: CreatePayload = (bin: bin, track_children: self.track_children,
+        publish: publish)
+
     let id = self.id
     let track_children = self.track_children
 
     template send_msg(src_ctx, sub) =
-      var msg = Message(kind: Create,
-        obj: Wrapper[proc(ctx: ZenContext, publish: bool)](item:
-            proc(ctx: ZenContext, publish: bool) =
+      static:
+        inc type_id
+      const zen_type_id = type_id.value
 
-          discard Zen.init(value, ctx = ctx, id = id,
-              track_children = track_children, publish = publish)
-        ),
-        object_id: id)
+      static:
+        type typ = self.tracked.type
+
+        initializers.add quote do:
+          type_initializers[zen_type_id] = proc(bin: string, ctx: ZenContext,
+              id: string, track_children, publish: bool) =
+
+            var value = bin.from_flatty(`typ`)
+            if id notin ctx:
+              discard Zen.init(value, ctx = ctx, id = id,
+                  track_children = track_children, publish = publish)
+
+      var msg = Message(kind: Create, obj: value.to_flatty,
+          type_id: zen_type_id, object_id: id)
+
       when defined(zen_trace):
         msg.trace = get_stack_trace()
 
-      src_ctx.send(sub, unsafe_isolate msg)
+      src_ctx.send(sub, msg)
 
     if sub != Subscription.default:
       ctx.send_msg(sub)
@@ -755,34 +801,34 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       for sub in self.ctx.subscribers:
         ctx.send_msg(sub)
 
-  self.build_message = proc(self: ref ZenBase, change: BaseChange): Message =
+  self.build_message = proc(self: ref ZenBase, change: BaseChange, id, trace: string): Message =
+    var msg = Message(object_id: id)
     assert Added in change.changes or Removed in change.changes or
       Touched in change.changes
     let change = Change[O](change)
     when change.item is Zen:
-      var wrapper = Wrapper[void](object_id: (ref ZenBase)(change.item).id)
+      msg.change_object_id = change.item.id
     elif change.item is Pair[any, Zen]:
       # TODO: Properly sync ref keys
-      var wrapper = Wrapper[change.item.key.type](
-        item: change.item.key, object_id: change.item.value.id)
+      msg.obj = change.item.key.to_flatty
+      msg.change_object_id = change.item.value.id
     else:
-      var wrapper = Wrapper[O]()
+      var item = ""
       block registered:
         when change.item is ref RootObj:
-          if change.item.is_nil:
-            wrapper.item = nil
-          else:
+          if not change.item.is_nil:
             var registered_type: RegisteredType
             if change.item.lookup_type(registered_type):
-              wrapper.item = O(registered_type.clone(change.item))
+              msg.ref_id = registered_type.ref_id
+              item = registered_type.stringify(change.item)
               break registered
             else:
               debug "type not registered", type_name = change.item.base_type
 
-        wrapper.item = change.item.deep_copy
+        item = change.item.to_flatty
+      msg.obj = item
 
-    result.obj = wrapper
-    result.kind = if Touched in change.changes:
+    msg.kind = if Touched in change.changes:
       Touch
     elif Added in change.changes:
       Assign
@@ -791,38 +837,47 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     else:
       raise_assert "Can't build message for changes " & $change.changes
 
+    result = msg
+
   self.change_receiver = proc(self: ref ZenBase, msg: Message, publish: bool) =
     assert self of Zen[T, O]
     let self = Zen[T, O](self)
     when O is Zen:
-      let object_id = Wrapper[void](msg.obj).object_id
+      let object_id = msg.change_object_id
       assert object_id in self.ctx.objects
       let item = O(self.ctx.objects[object_id])
     elif O is Pair[any, Zen]:
       type K = O.get(0)
       type V = O.get(1)
-      let wrapper = Wrapper[K](msg.obj)
-      if wrapper.object_id notin self.ctx.objects:
+      if msg.object_id notin self.ctx.objects:
         when defined(zen_trace):
           echo msg.trace
-        raise_assert "object not in context " & wrapper.object_id &
+        raise_assert "object not in context " & msg.object_id &
             " " & $Zen[T, O]
 
-      let value = V(self.ctx.objects[wrapper.object_id])
-      let item = (key: wrapper.item, value: value)
+      let value = V(self.ctx.objects[msg.change_object_id])
+      let item = (key: msg.obj.from_flatty(K), value: value)
     else:
-      var item = Wrapper[O](msg.obj).item
+      var item: O
       when item is ref RootObj:
-        if not item.is_nil:
-          var registered_type: RegisteredType
-          if item.lookup_type(registered_type):
-            if not self.ctx.find_ref(item):
-              item = type(item)(registered_type.restore(item, self.ctx))
-              debug "item restored (not found)", item = item.type.name,
-                  ref_id = item.ref_id
+        if msg.obj != "":
+          if msg.ref_id > 0:
+            var registered_type: RegisteredType
+            if item.lookup_type(registered_type, msg.ref_id):
+              item = type(item)(registered_type.parse(item, self.ctx, msg.obj))
+              if not self.ctx.find_ref(item):
+                debug "item restored (not found)", item = item.type.name,
+                    ref_id = item.ref_id
+              else:
+                debug "item found (not restored)", item = item.type.name,
+                    ref_id = item.ref_id
             else:
-              debug "item found (not restored)", item = item.type.name,
-                  ref_id = item.ref_id
+              raise_assert &"Type for ref_id {msg.ref_id} not registered"
+          else:
+            item = msg.obj.from_flatty(O)
+
+      else:
+        item = msg.obj.from_flatty(O)
 
     if msg.kind == Assign:
       self.assign(item, publish = publish)
@@ -905,7 +960,7 @@ proc init*[K, V](_: type Zen, T: type Table[K, V], track_children = true,
   ctx = ctx(), id = ""): Zen[Table[K, V], Pair[K, V]] =
 
   result = Zen[Table[K, V], Pair[K, V]](track_children: track_children)
-    .defaults(ctx, id, publish = true)
+      .defaults(ctx, id, publish = true)
 
 proc init*(_: type Zen, K, V: type, track_children = true, ctx = ctx(),
   id = ""): ZenTable[K, V] =

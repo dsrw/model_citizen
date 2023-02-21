@@ -1,9 +1,12 @@
 import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
-  strformat, atomics, strutils, locks, monotimes, os, importutils]
+  strformat, atomics, strutils, locks, monotimes, os, importutils, macrocache]
 import std / times except local
-import pkg / [threading / channels, print]
+import pkg / [threading / channels, print, flatty]
 import typeids
 from pkg / threading / channels {.all.} import ChannelObj
+
+export macros, flatty, dup
+
 const chronicles_enabled {.strdefine.} = "off"
 
 when chronicles_enabled == "on":
@@ -40,18 +43,25 @@ type
     triggered_by_type*: string
     type_name*: string
 
-  Wrapper[T] = ref object of RootObj
-    item: T
-    object_id: string
-
   Message = object
     kind: MessageKind
     object_id: string
-    obj: ref RootObj
+    change_object_id: string
+    type_id: int
+    ref_id: int
+    obj: string
     when defined(zen_trace):
       trace: string
       id: int
       src: string
+
+  CreateInitializer = proc(bin: string, ctx: ZenContext, id: string,
+      track_children, publish: bool)
+
+  CreatePayload = tuple
+    bin: string
+    track_children: bool
+    publish: bool
 
   Change*[O] = ref object of BaseChange
     item*: O
@@ -63,12 +73,13 @@ type
     count: int
 
   RegisteredType = object
-    clone: proc(self: ref RootObj): ref RootObj {.noSideEffect.}
-    restore: proc(self: ref RootObj, ctx: ZenContext,
-        clone_from: ref RootObj = nil): ref RootObj {.no_side_effect.}
+    ref_id: int
+    stringify: proc(self: ref RootObj): string {.noSideEffect.}
+    parse: proc(self: ref RootObj, ctx: ZenContext,
+        clone_from: string): ref RootObj {.no_side_effect.}
 
   Subscription = object
-    chan: Chan[Message]
+    chan: Chan[string]
     ctx_name: string
 
   ZenContext* = ref object
@@ -80,7 +91,7 @@ type
     ref_pool: Table[string, CountedRef]
     subscribers: seq[Subscription]
     name*: string
-    chan: Chan[Message]
+    chan: Chan[string]
     freeable_refs: Table[string, MonoTime]
     last_msg_id: Table[string, int]
     last_received_id: Table[string, int]
@@ -91,15 +102,22 @@ type
     link_zid: ZID
     paused_zids: set[ZID]
     track_children: bool
-    build_message: proc(self: ref ZenBase, change: BaseChange): Message {.gcsafe.}
-    publish_create: proc(sub = Subscription.default, broadcast = false) {.gcsafe.}
-    change_receiver: proc(self: ref ZenBase, msg: Message, publish: bool) {.gcsafe.}
+    build_message: proc(self: ref ZenBase, change: BaseChange, id: string,
+        trace: string): Message {.gcsafe.}
+
+    publish_create: proc(sub = Subscription.default,
+        broadcast = false) {.gcsafe.}
+
+    change_receiver: proc(self: ref ZenBase, msg: Message,
+        publish: bool) {.gcsafe.}
+
     ctx*: ZenContext
 
+  ChangeCallback[O] = proc(changes: seq[Change[O]]) {.gcsafe.}
+
   ZenObject[T, O] = object of ZenBase
+    changed_callbacks: OrderedTable[ZID, ChangeCallback[O]]
     tracked: T
-    changed_callbacks:
-      OrderedTable[ZID, proc(changes: seq[Change[O]]) {.gcsafe.}]
 
   Zen*[T, O] = ref object of ZenObject[T, O]
 
@@ -123,11 +141,21 @@ template with_lock(body: untyped) =
     locks.with_lock(type_registry_lock):
       body
 
+const initializers = CacheSeq"initializers"
+const type_id = CacheCounter"type_id"
+var type_initializers: Table[int, CreateInitializer]
+var initialized = false
+
+macro system_init*(_: type Zen): untyped =
+  result = new_stmt_list()
+  for initializer in initializers:
+    result.add initializer
+
 proc init*(_: type ZenContext,
   name = "thread-" & $get_thread_id(), chan_size = 100 ): ZenContext =
 
   result = ZenContext(name: name, chan_size: chan_size)
-  result.chan = new_chan[Message](elements = chan_size)
+  result.chan = new_chan[string](elements = chan_size)
 
 proc ctx(): ZenContext =
   if active_ctx == nil:
