@@ -66,7 +66,8 @@ proc init(_: type Change,
 
   Change[T](changes: changes, type_name: $Change[T], field_name: field_name)
 
-proc recv*(self: ZenContext, messages = int.high) {.gcsafe.}
+proc recv*(self: ZenContext,
+    messages = int.high, duration = Duration.default) {.gcsafe.}
 
 proc valid*[T: ref ZenBase](self: T): bool =
   not self.is_nil and not self.destroyed
@@ -283,11 +284,18 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
       if self.ref_pool[id].count == 0:
         self.freeable_refs[id] = get_mono_time() + init_duration(seconds = 10)
 
-proc recv*(self: ZenContext, messages = int.high) {.gcsafe.} =
+proc recv*(self: ZenContext,
+    messages = int.high, duration = Duration.default) {.gcsafe.} =
+
   var msg: Message
   var count = 0
   self.free_refs
-  while count < messages and self.chan.peek > 0:
+  let timeout = if duration == Duration.default:
+    MonoTime.high
+  else:
+    get_mono_time() + duration
+
+  while count < messages and self.chan.peek > 0 and get_mono_time() < timeout:
     self.chan.recv(msg)
     when defined(zen_trace):
       let src = self.name & "-" & msg.src
