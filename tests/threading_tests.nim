@@ -1,5 +1,5 @@
 import std / [locks, os, unittest]
-import pkg / [print]
+import pkg / [print, chronicles]
 import model_citizen
 
 var global_lock: Lock
@@ -33,9 +33,8 @@ proc thread_tests =
   test "basic":
     Zen.thread_ctx.clear
     Zen.thread_ctx = ZenContext.init(name = "main")
-    var ctx = ZenContext.init(name = "worker")
-    Zen.thread_ctx.subscribe(ctx)
-    ctx.subscribe(Zen.thread_ctx)
+    var ctx = ZenContext.init(name = "worker", listen = true)
+    Zen.thread_ctx.subscribe("127.0.0.1")
 
     var a = Zen.init("", id = "t1")
     global_lock.acquire()

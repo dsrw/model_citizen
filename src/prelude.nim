@@ -1,7 +1,8 @@
 import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
-  strformat, atomics, strutils, locks, monotimes, os, importutils, macrocache]
+    strformat, atomics, strutils, locks, monotimes, os, importutils,
+    macrocache, algorithm, net]
 import std / times except local
-import pkg / [threading / channels, print, flatty]
+import pkg / [threading / channels, print, flatty, netty, supersnappy]
 import typeids
 from pkg / threading / channels {.all.} import ChannelObj
 
@@ -34,7 +35,7 @@ type
     Created, Added, Removed, Modified, Touched, Closed
 
   MessageKind = enum
-    Blank, Create, Destroy, Assign, Unassign, Touch
+    Blank, Create, Destroy, Assign, Unassign, Touch, Subscribe
 
   BaseChange* = ref object of RootObj
     changes*: set[ChangeKind]
@@ -78,16 +79,24 @@ type
     parse: proc(self: ref RootObj, ctx: ZenContext,
         clone_from: string): ref RootObj {.no_side_effect.}
 
+  SubscriptionKind = enum Blank, Local, Remote
+
   Subscription = object
-    chan: Chan[string]
     ctx_name: string
+    case kind: SubscriptionKind
+    of Local:
+      chan: Chan[string]
+    of Remote:
+      connection: Connection
+    else:
+      discard
 
   ZenContext* = ref object
     chan_size: int
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]
-    objects: Table[string, ref ZenBase]
+    objects: OrderedTable[string, ref ZenBase]
     ref_pool: Table[string, CountedRef]
     subscribers: seq[Subscription]
     name*: string
@@ -95,6 +104,11 @@ type
     freeable_refs: Table[string, MonoTime]
     last_msg_id: Table[string, int]
     last_received_id: Table[string, int]
+    reactor*: Reactor
+    remote_messages: seq[netty.Message]
+    blocking_recv: bool
+    min_recv_duration: Duration
+    max_recv_duration: Duration
 
   ZenBase = object of RootObj
     id: string
@@ -133,6 +147,9 @@ var type_registry_lock: Lock
 type_registry_lock.init_lock
 
 var active_ctx {.threadvar.}: ZenContext
+var flatty_ctx {.threadvar.}: ZenContext
+
+const port = 9632
 
 template local* {.pragma.}
 
@@ -152,10 +169,18 @@ macro system_init*(_: type Zen): untyped =
     result.add initializer
 
 proc init*(_: type ZenContext,
-  name = "thread-" & $get_thread_id(), chan_size = 100 ): ZenContext =
+    name = "thread-" & $get_thread_id(), chan_size = 100,
+    listen = false, blocking_recv = false, max_recv_duration =
+    Duration.default, min_recv_duration = Duration.default): ZenContext =
 
-  result = ZenContext(name: name, chan_size: chan_size)
+  result = ZenContext(name: name, chan_size: chan_size,
+      blocking_recv: blocking_recv, max_recv_duration: max_recv_duration,
+      min_recv_duration: min_recv_duration)
+
   result.chan = new_chan[string](elements = chan_size)
+  if listen:
+    debug "listening"
+    result.reactor = new_reactor("127.0.0.1", port)
 
 proc ctx(): ZenContext =
   if active_ctx == nil:

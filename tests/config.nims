@@ -1,10 +1,12 @@
 --mm:orc
 --threads:on
---define:nimPreviewHashRef
---define:nimTypeNames
+--define:nim_preview_hash_ref
+--define:nim_type_names
 --define:"chronicles_enabled=on"
 --define:"chronicles_sinks=textblocks[stdout]"
 --define:"chronicles_log_level=INFO"
 --define:"zen_trace"
+
+--experimental:"overloadable_enums"
 
 switch("path", "$projectDir/../src")

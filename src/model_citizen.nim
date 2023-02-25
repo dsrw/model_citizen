@@ -1,5 +1,9 @@
 include prelude
 
+proc from_flatty(bin: string, T: type, ctx: ZenContext): T =
+  flatty_ctx = ctx
+  bin.from_flatty(T)
+
 proc register_type*(_: type Zen, typ: type) =
   log_defaults
   let key = typ.type_id
@@ -26,11 +30,12 @@ proc register_type*(_: type Zen, typ: type) =
 
     result = clone.to_flatty
 
-  let parse = func(self: ref RootObj, ctx: ZenContext, clone_from: string): ref RootObj =
+  let parse = func(self: ref RootObj, ctx: ZenContext,
+      clone_from: string): ref RootObj =
 
     var self: typ
     {.cast(no_side_effect).}:
-      self = clone_from.from_flatty(typ)
+      self = clone_from.from_flatty(typ, ctx)
     for field in self[].fields:
       when field is Zen:
         if not field.is_nil and field.id in ctx:
@@ -38,9 +43,12 @@ proc register_type*(_: type Zen, typ: type) =
     result = self
 
   with_lock:
-    type_registry[][key] = RegisteredType(stringify: stringify, parse: parse, ref_id: key)
+    type_registry[][key] = RegisteredType(stringify: stringify, parse: parse,
+        ref_id: key)
 
-proc lookup_type(obj: ref RootObj, registered_type: var RegisteredType, key = 0): bool =
+proc lookup_type(obj: ref RootObj, registered_type: var RegisteredType,
+    key = 0): bool =
+
   let key = if key == 0: obj.type_id else: key
   if key in local_type_registry:
     registered_type = local_type_registry[key]
@@ -83,7 +91,7 @@ proc from_flatty*[T, O](s: string, i: var int, zen: var Zen[T, O]) =
   if not is_nil:
     var id: string
     s.from_flatty(i, id)
-    zen = zen.type()(Zen.thread_ctx.objects[id])
+    zen = zen.type()(flatty_ctx.objects[id])
 
 proc clear*(self: ZenContext) =
   debug "Clearing ZenContext"
@@ -101,7 +109,8 @@ proc init(_: type Change,
   Change[T](changes: changes, type_name: $Change[T], field_name: field_name)
 
 proc recv*(self: ZenContext,
-    messages = int.high, duration = Duration.default) {.gcsafe.}
+    messages = int.high, max_duration = self.max_recv_duration, min_duration =
+    self.min_recv_duration, blocking = self.blocking_recv) {.gcsafe.}
 
 proc valid*[T: ref ZenBase](self: T): bool =
   not self.is_nil and not self.destroyed
@@ -144,7 +153,6 @@ proc len[T, O](self: Zen[T, O]): int =
   self.tracked.len
 
 proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
-  assert self.ctx == Zen.thread_ctx
   if changes.len > 0:
     let callbacks = self.changed_callbacks.dup
     for zid, callback in callbacks.pairs:
@@ -198,8 +206,8 @@ proc link_child[K, V](self: ZenTable[K, V],
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
-    debug "linking zen", child = ($child.type, $child.id), self = ($self.type, $self.id)
-
+    debug "linking zen", child = ($child.type, $child.id),
+        self = ($self.type, $self.id)
 
   if not child.value.is_nil:
     self.link(child, child.value)
@@ -220,7 +228,9 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
-    debug "linking zen", child = ($child.type, $child.id), self = ($self.type, $self.id), zid = child.link_zid, child_addr = cast[int](unsafe_addr child[]).to_hex
+    debug "linking zen", child = ($child.type, $child.id),
+        self = ($self.type, $self.id), zid = child.link_zid,
+        child_addr = cast[int](unsafe_addr child[]).to_hex
 
   if not child.is_nil:
     link(child)
@@ -318,47 +328,128 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
       if self.ref_pool[id].count == 0:
         self.freeable_refs[id] = get_mono_time() + init_duration(seconds = 10)
 
+proc process_message(self: ZenContext, msg: Message) =
+  when defined(zen_trace):
+    let src = self.name & "-" & msg.src
+    if src in self.last_received_id:
+      if msg.id != self.last_received_id[src] + 1:
+        raise_assert &"src={src} msg.id={msg.id} " &
+            &"last={self.last_received_id[src]}. Should be msg.id - 1"
+    self.last_received_id[src] = msg.id
+    debug "receiving", msg
+
+  if msg.kind == Create:
+
+    assert msg.obj != ""
+    {.cast(gcsafe).}:
+      let fn = type_initializers[msg.type_id]
+      let args = msg.obj.from_flatty(CreatePayload, self)
+      fn(args.bin, self, msg.object_id, args.track_children, false)
+  elif msg.kind == Destroy:
+    let obj = self.objects[msg.object_id]
+    assert obj.valid
+    obj.destroyed = true
+    self.objects.del(msg.object_id)
+  elif msg.kind != Blank:
+    let obj = self.objects[msg.object_id]
+    obj.change_receiver(obj, msg, publish = false)
+  else:
+    raise_assert "Can't recv a blank message"
+
+proc send(self: ZenContext, sub: Subscription, msg: sink Message) =
+  when defined(zen_trace):
+    msg.src = self.name
+    if sub.ctx_name notin self.last_msg_id:
+      self.last_msg_id[sub.ctx_name] = 1
+    else:
+      self.last_msg_id[sub.ctx_name] += 1
+    msg.id = self.last_msg_id[sub.ctx_name]
+  debug "sending", msg
+
+  if sub.kind == Local:
+    sub.chan.send(msg.to_flatty)
+  elif sub.kind == Remote:
+    self.reactor.send(sub.connection, msg.to_flatty.compress)
+
+proc add_subscriber(self: ZenContext, sub: Subscription) =
+  debug "adding subscriber", sub
+  self.subscribers.add sub
+  for id in self.objects.keys.to_seq.reversed:
+    let zen = self.objects[id]
+    zen.publish_create sub
+
+proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
+  debug "local subscribe", ctx = self.name
+  ctx.add_subscriber Subscription(kind: Local, chan: self.chan,
+      ctx_name: self.name)
+
+  self.recv(blocking = false, min_duration = Duration.default)
+  if bidirectional:
+    ctx.subscribe(self, bidirectional = false)
+
+proc subscribe*(self: ZenContext, address: string, bidirectional = true) =
+  debug "remote subscribe", address
+  if self.reactor.is_nil:
+    self.reactor = new_reactor()
+  let connection = self.reactor.connect(address, port)
+  self.send(Subscription(kind: Remote, ctx_name: "temp",
+      connection: connection), Message(kind: Subscribe))
+
+  if bidirectional:
+    self.add_subscriber Subscription(kind: Remote, connection: connection,
+      ctx_name: address)
+  self.reactor.tick
+  self.remote_messages &= self.reactor.messages
+
+proc close*(self: ZenContext) =
+  if not self.reactor.is_nil:
+    private_access Reactor
+    self.reactor.socket.close()
+  self.reactor = nil
+
 proc recv*(self: ZenContext,
-    messages = int.high, duration = Duration.default) {.gcsafe.} =
+    messages = int.high, max_duration = self.max_recv_duration, min_duration =
+    self.min_recv_duration, blocking = self.blocking_recv) {.gcsafe.} =
 
   var msg: Message
   var count = 0
   self.free_refs
-  let timeout = if duration == Duration.default:
+  let timeout = if max_duration == Duration.default:
     MonoTime.high
   else:
-    get_mono_time() + duration
+    get_mono_time() + max_duration
+  let recv_until = if min_duration == Duration.default:
+    MonoTime.low
+  else:
+    get_mono_time() + min_duration
 
-  while count < messages and self.chan.peek > 0 and get_mono_time() < timeout:
-    var bin: string
-    self.chan.recv(bin)
-    msg = bin.from_flatty(Message)
-    when defined(zen_trace):
-      let src = self.name & "-" & msg.src
-      if src in self.last_received_id:
-        if msg.id != self.last_received_id[src] + 1:
-          raise_assert &"src={src} msg.id={msg.id} last={self.last_received_id[src]}. Should be msg.id - 1"
-      self.last_received_id[src] = msg.id
-    inc count
-    debug "receiving", msg
+  while true:
+    while count < messages and self.chan.peek > 0 and
+        get_mono_time() < timeout:
 
-    if msg.kind == Create:
+      var bin: string
+      self.chan.recv(bin)
+      msg = bin.from_flatty(Message, self)
+      self.process_message(msg)
+      inc count
 
-      assert msg.obj != ""
-      {.cast(gcsafe).}:
-        let fn = type_initializers[msg.type_id]
-        let args = msg.obj.from_flatty(CreatePayload)
-        fn(args.bin, self, msg.object_id, args.track_children, false)
-    elif msg.kind == Destroy:
-      let obj = self.objects[msg.object_id]
-      assert obj.valid
-      obj.destroyed = true
-      self.objects.del(msg.object_id)
-    elif msg.kind != Blank:
-      let obj = self.objects[msg.object_id]
-      obj.change_receiver(obj, msg, publish = false)
-    else:
-      raise_assert "Can't recv a blank message"
+    if not self.reactor.is_nil:
+      self.reactor.tick()
+      let messages = self.remote_messages & self.reactor.messages
+      self.remote_messages = @[]
+
+      for raw_msg in messages:
+        inc count
+        let msg = raw_msg.data.uncompress.from_flatty(Message, self)
+        if msg.kind == Subscribe:
+          self.add_subscriber Subscription(kind: Remote,
+              connection: raw_msg.conn, ctx_name: $raw_msg.conn.address)
+
+        else:
+          self.process_message(msg)
+
+    if (count > 0 or not blocking) and get_mono_time() > recv_until:
+      break
 
 proc remaining*(self: Chan): range[0.0..1.0] =
   private_access Chan
@@ -367,41 +458,36 @@ proc remaining*(self: Chan): range[0.0..1.0] =
   result = 1.0 - self.peek / size
 
 proc pressure*(self: ZenContext): range[0.0..1.0] =
-  1.0 - (@[self.chan.remaining] & self.subscribers.map_it(it.chan.remaining)).min
+  1.0 - (@[self.chan.remaining] &
+      self.subscribers.map_it(it.chan.remaining)).min
 
 proc chan_full*(self: Chan): bool =
   self.remaining < 0.1
 
-proc send*(self: ZenContext, sub: Subscription, msg: sink Message) =
-  when defined(zen_trace):
-    msg.src = self.name
-    if sub.ctx_name notin self.last_msg_id:
-      self.last_msg_id[sub.ctx_name] = 1
-    else:
-      self.last_msg_id[sub.ctx_name] += 1
-    msg.id = self.last_msg_id[sub.ctx_name]
-
-    sub.chan.send(msg.to_flatty)
-  else:
-    sub.chan.send(msg.to_flatty)
-
 proc publish_destroy[T, O](self: Zen[T, O]) =
+  log_defaults
+  debug "destroy"
   for sub in self.ctx.subscribers:
     when defined(zen_trace):
       self.ctx.send(sub, Message(
         kind: Destroy, object_id: self.id, trace: get_stack_trace()))
     else:
       self.ctx.send(sub, Message(kind: Destroy, object_id: self.id))
+  if not self.ctx.reactor.is_nil:
+    self.ctx.reactor.tick
+    self.ctx.remote_messages &= self.ctx.reactor.messages
 
 proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
+  log_defaults
+  debug "changes"
   let id = self.id
   for sub in self.ctx.subscribers:
     for change in changes:
       if [Added, Removed, Created, Touched].any_it(it in change.changes):
         if Removed in change.changes and Modified in change.changes:
-          # An assign will trigger both an assign and an unassign on the other side.
-          # we only want to send a Removed message when an item is removed from a
-          # collection.
+          # An assign will trigger both an assign and an unassign on the other
+          # side. We only want to send a Removed message when an item is
+          # removed from a collection.
           continue
         assert id in self.ctx.objects
         let obj = self.ctx.objects[id]
@@ -411,6 +497,9 @@ proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
           ""
         var msg = obj.build_message(obj, change, id, trace)
         self.ctx.send(sub, msg)
+    if not self.ctx.reactor.is_nil:
+      self.ctx.reactor.tick
+      self.ctx.remote_messages &= self.ctx.reactor.messages
 
 proc process_changes[T](self: Zen[T, T], initial: sink T, touch = false,
     publish_changes: bool) =
@@ -763,6 +852,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   ctx.objects[self.id] = self
 
   self.publish_create = proc(sub: Subscription, broadcast: bool) {.gcsafe.} =
+    debug "create", sub
     let bin = self.tracked.to_flatty
     let value: CreatePayload = (bin: bin, track_children: self.track_children,
         publish: publish)
@@ -782,7 +872,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
           type_initializers[zen_type_id] = proc(bin: string, ctx: ZenContext,
               id: string, track_children, publish: bool) =
 
-            var value = bin.from_flatty(`typ`)
+            var value = bin.from_flatty(`typ`, ctx)
             if id notin ctx:
               discard Zen.init(value, ctx = ctx, id = id,
                   track_children = track_children, publish = publish)
@@ -795,13 +885,18 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
       src_ctx.send(sub, msg)
 
-    if sub != Subscription.default:
+    if sub.kind != Blank:
       ctx.send_msg(sub)
     if broadcast:
-      for sub in self.ctx.subscribers:
+      for sub in ctx.subscribers:
         ctx.send_msg(sub)
+    if not ctx.reactor.is_nil:
+      ctx.reactor.tick
+      ctx.remote_messages &= ctx.reactor.messages
 
-  self.build_message = proc(self: ref ZenBase, change: BaseChange, id, trace: string): Message =
+  self.build_message = proc(self: ref ZenBase, change: BaseChange, id,
+      trace: string): Message =
+
     var msg = Message(object_id: id)
     assert Added in change.changes or Removed in change.changes or
       Touched in change.changes
@@ -856,7 +951,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
             " " & $Zen[T, O]
 
       let value = V(self.ctx.objects[msg.change_object_id])
-      let item = (key: msg.obj.from_flatty(K), value: value)
+      let item = (key: msg.obj.from_flatty(K, self.ctx), value: value)
     else:
       var item: O
       when item is ref RootObj:
@@ -874,10 +969,10 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
             else:
               raise_assert &"Type for ref_id {msg.ref_id} not registered"
           else:
-            item = msg.obj.from_flatty(O)
+            item = msg.obj.from_flatty(O, self.ctx)
 
       else:
-        item = msg.obj.from_flatty(O)
+        item = msg.obj.from_flatty(O, self.ctx)
 
     if msg.kind == Assign:
       self.assign(item, publish = publish)
@@ -905,11 +1000,13 @@ proc init*(_: type Zen,
   result = Zen[T, T](track_children: track_children).defaults(ctx, id,
       publish = true)
 
-proc init*[T: ref | object | SomeOrdinal | SomeNumber | string | ptr](_: type Zen,
-    tracked: T, track_children = true, ctx = ctx(), id = "",
+proc init*[T: ref | object | SomeOrdinal | SomeNumber | string | ptr](
+    _: type Zen, tracked: T, track_children = true, ctx = ctx(), id = "",
     publish = true): Zen[T, T] =
 
-  var self = Zen[T, T](track_children: track_children).defaults(ctx, id, publish)
+  var self = Zen[T, T](track_children: track_children).defaults(
+      ctx, id, publish)
+
   mutate(publish):
     self.tracked = tracked
   result = self
@@ -1013,18 +1110,15 @@ proc track*[T, O](self: Zen[T, O],
   result = zid
 
 proc track*[T, O](self: Zen[T, O],
-    callback: proc(changes: seq[Change[O]], zid: ZID) {.gcsafe.}): ZID {.discardable.} =
+    callback: proc(changes: seq[Change[O]], zid: ZID) {.gcsafe.}):
+    ZID {.discardable.} =
 
   assert self.valid
   var zid: ZID
-  zid = self.track proc(changes: seq[Change[O]]) {.gcsafe.} = callback(changes, zid)
-  result = zid
+  zid = self.track proc(changes: seq[Change[O]]) {.gcsafe.} =
+    callback(changes, zid)
 
-proc subscribe*(self: ZenContext, ctx: ZenContext) =
-  ctx.subscribers.add Subscription(chan: self.chan, ctx_name: self.name)
-  for id, zen in ctx.objects:
-    zen.publish_create Subscription(chan: self.chan, ctx_name: self.name)
-  self.recv
+  result = zid
 
 template changes*[T, O](self: Zen[T, O], body) =
   self.track proc(changes: seq[Change[O]], zid {.inject.}: ZID) {.gcsafe.} =

@@ -1,7 +1,8 @@
 import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
-    unittest, deques, importutils, monotimes]
-import pkg/print
+    unittest, deques, importutils, monotimes, os]
+import pkg / [print, chronicles, netty]
 import model_citizen
+from std / times import init_duration
 from model_citizen {.all.} import ref_id, CountedRef
 
 proc main =
@@ -17,12 +18,6 @@ proc main =
       echo ast_to_str(body)
       echo "Expected ", expected_count, " changes. Got ", change_count
 
-  template recv =
-    Zen.thread_ctx = ctx2
-    ctx2.recv
-    Zen.thread_ctx = ctx1
-    ctx1.recv
-
   template assert_changes[T, O](self: Zen[T, O], expect, body: untyped) =
     var expectations = expect.to_deque
     self.track proc(changes: seq[Change[O]]) {.gcsafe.} =
@@ -35,6 +30,42 @@ proc main =
     if expectations.len > 0:
       echo "unsatisfied expectations: ", expectations
       check false
+
+  template local(body) =
+    block local:
+      debug "local run"
+      var
+        ctx1 {.inject.} = ZenContext.init(name = "ctx1", blocking_recv = true)
+        ctx2 {.inject.} = ZenContext.init(name = "ctx2", blocking_recv = true)
+
+      ctx2.subscribe(ctx1)
+      Zen.thread_ctx = ctx1
+      ctx1.recv(blocking = false)
+
+      body
+
+  template remote(body) =
+    block remote:
+      debug "remote run"
+      const recv_duration = init_duration(milliseconds = 10)
+      var
+        ctx1 {.inject.} = ZenContext.init(name = "ctx1", listen = true,
+            min_recv_duration = recv_duration, blocking_recv  = true)
+
+        ctx2 {.inject.} = ZenContext.init(name = "ctx2",
+            min_recv_duration = recv_duration, blocking_recv  = true)
+
+      ctx2.subscribe("127.0.0.1")
+      Zen.thread_ctx = ctx1
+      ctx1.recv
+
+      body
+
+      ctx1.close
+      ctx2.close
+  template local_and_remote(body) =
+    local(body)
+    remote(body)
 
   test "sets":
     type
@@ -376,29 +407,6 @@ proc main =
     check m.zen_field.value == "test"
 
   test "sync":
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
-
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
-
-    var s1 = ZenValue[string].init(ctx = ctx1)
-    recv
-    var s2 = ZenValue[string](ctx2[s1])
-    check s2.ctx != nil
-    s1.value = "sync me"
-
-    recv
-
-    check s2.value == s1.value
-
-    s1 &= " and me"
-
-    recv
-
-    check s2.value == s1.value and s2.value == "sync me and me"
-
     type
       Thing = ref object of RootObj
         id: string
@@ -414,83 +422,96 @@ proc main =
 
     Zen.register_type(Thing)
 
-    var msg = "hello world"
-    var another_msg = "another"
-    var src = Tree().init_zen_fields(ctx = ctx1)
-    recv
-    var dest = Tree.init_from(src, ctx = ctx2)
+    local_and_remote:
+      var s1 = ZenValue[string].init(ctx = ctx1)
+      ctx2.recv
+      var s2 = ZenValue[string](ctx2[s1])
+      check s2.ctx != nil
 
-    src.zen.value = "hello world"
-    recv
-    check src.zen.value == "hello world"
-    check dest.zen.value == "hello world"
+      s1.value = "sync me"
+      ctx2.recv
 
-    let thing = Thing(id: "Vin")
-    src.things += thing
-    recv
-    check dest.things.len == 1
-    check dest.things[0] != nil
-    check dest.things[0].id == "Vin"
+      check s2.value == s1.value
 
-    src.things -= thing
-    check src.things.len == 0
+      s1 &= " and me"
+      ctx2.recv
 
-    recv
-    check dest.things.len == 0
+      check s2.value == s1.value and s2.value == "sync me and me"
 
-    var container = Container().init_zen_fields(ctx = ctx1)
+      var msg = "hello world"
+      var another_msg = "another"
+      var src = Tree().init_zen_fields(ctx = ctx1)
+      ctx2.recv
+      var dest = Tree.init_from(src, ctx = ctx2)
 
-    var t = Thing(id: "Scott")
-    ctx2.recv
-    var remote_container = Container.init_from(container, ctx = ctx2)
-    container.thing1.value = t
-    container.thing2.value = t
+      src.zen.value = "hello world"
+      ctx2.recv
+      check src.zen.value == "hello world"
+      check dest.zen.value == "hello world"
 
-    check container.thing1.value == container.thing2.value
-    recv
+      let thing = Thing(id: "Vin")
+      src.things += thing
+      ctx2.recv
+      check dest.things.len == 1
+      check dest.things[0] != nil
+      check dest.things[0].id == "Vin"
 
-    check remote_container.thing1.value.id == container.thing1.value.id
-    check remote_container.thing1.value == remote_container.thing2.value
-    var s3 = ZenValue[string].init(ctx = ctx1)
-    src.values += s3
-    s3.value = "hi"
-    recv
-    check dest.values[^1].value == "hi"
+      src.things -= thing
+      check src.things.len == 0
 
-    var ctx3 = ZenContext.init(name = "ctx3")
-    Zen.thread_ctx = ctx3
-    ctx3.subscribe(ctx2)
-    ctx3.subscribe(ctx1)
-    Zen.thread_ctx = ctx1
-    check ctx3.len == ctx1.len
-    src.values += Zen.init("", ctx = ctx1)
-    check ctx1.len != ctx2.len and ctx1.len != ctx3.len
-    recv
-    check ctx1.len == ctx2.len and ctx1.len != ctx3.len
-    Zen.thread_ctx = ctx3
-    ctx3.recv
-    Zen.thread_ctx = ctx1
-    check ctx1.len == ctx2.len and ctx1.len == ctx3.len
+      ctx2.recv
+
+      check dest.things.len == 0
+
+      var container = Container().init_zen_fields(ctx = ctx1)
+
+      var t = Thing(id: "Scott")
+      ctx2.recv
+      var remote_container = Container.init_from(container, ctx = ctx2)
+      container.thing1.value = t
+      container.thing2.value = t
+
+      check container.thing1.value == container.thing2.value
+
+      sleep(100)
+      ctx2.recv
+
+      check remote_container.thing1.value.id == container.thing1.value.id
+      check remote_container.thing1.value == remote_container.thing2.value
+      var s3 = ZenValue[string].init(ctx = ctx1)
+      src.values += s3
+      s3.value = "hi"
+      ctx2.recv
+      check dest.values[^1].value == "hi"
+
+      var ctx3 = ZenContext.init(name = "ctx3")
+      Zen.thread_ctx = ctx3
+      ctx3.subscribe(ctx2, bidirectional = false)
+      ctx3.subscribe(ctx1, bidirectional = false)
+      Zen.thread_ctx = ctx1
+      check ctx3.len == ctx1.len
+      src.values += Zen.init("", ctx = ctx1)
+      check ctx1.len != ctx2.len and ctx1.len != ctx3.len
+      ctx2.recv
+      check ctx1.len == ctx2.len and ctx1.len != ctx3.len
+      Zen.thread_ctx = ctx3
+      ctx3.recv
+      Zen.thread_ctx = ctx1
+      check ctx1.len == ctx2.len and ctx1.len == ctx3.len
 
   test "delete":
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
+    local_and_remote:
+      var a = Zen.init("", ctx = ctx1)
+      check ctx1.len == 1
+      ctx2.recv
+      check ctx1.len == 1
+      check ctx2.len == 1
 
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
-
-    var a = Zen.init("", ctx = ctx1)
-    check ctx1.len == 1
-    recv
-    check ctx1.len == 1
-    check ctx2.len == 1
-
-    a.destroy
-    check ctx1.len == 0
-    recv
-    check ctx1.len == 0
-    check ctx2.len == 0
+      a.destroy
+      check ctx1.len == 0
+      ctx2.recv
+      check ctx1.len == 0
+      check ctx2.len == 0
 
   test "sync nested":
     type
@@ -501,29 +522,20 @@ proc main =
 
     Zen.register_type(Unit)
 
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
+    local_and_remote:
+      var u1 = Unit(id: 1)
+      var u2 = Unit(id: 2)
+      u1.init_zen_fields
+      u2.init_zen_fields
 
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
+      ctx2.recv
 
-    Zen.thread_ctx = ctx1
+      var ru1 = Unit.init_from(u1, ctx = ctx2)
 
-    var u1 = Unit(id: 1)
-    var u2 = Unit(id: 2)
-    u1.init_zen_fields
-    u2.init_zen_fields
+      u1.units += u2
+      ctx2.recv
 
-    recv
-
-    var ru1 = Unit.init_from(u1, ctx = ctx2)
-
-    u1.units += u2
-    recv
-
-    check ru1.units[0].code.ctx == ctx2
-
+      check ru1.units[0].code.ctx == ctx2
 
   test "zentable of tables":
     type
@@ -531,30 +543,21 @@ proc main =
         id: string
         edits: ZenTable[int, Table[string, string]]
 
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
-
-    Zen.thread_ctx = ctx1
-
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
-
     Zen.register_type(Shared)
 
-    var container: ZenValue[Shared]
-    container.init
+    local_and_remote:
+      var container: ZenValue[Shared]
+      container.init
 
-    var shared = Shared(id: "1")
-    shared.init_zen_fields
+      var shared = Shared(id: "1")
+      shared.init_zen_fields
 
-    container.value = shared
-    container.value.edits[1] = init_table[string, string]()
+      container.value = shared
+      container.value.edits[1] = init_table[string, string]()
+      ctx2.recv
 
-    recv
-
-    var dest = type(container)(ctx2[container])
-    check 1 in container.value.edits
+      var dest = type(container)(ctx2[container])
+      check 1 in container.value.edits
 
   test "zentable of zentables":
     type
@@ -562,126 +565,99 @@ proc main =
         id: string
         chunks: ZenTable[int, ZenTable[string, string]]
 
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
+    local_and_remote:
+      var container: ZenValue[Block]
+      container.init
 
-    Zen.thread_ctx = ctx1
+      var shared = Block(id: "2")
+      shared.init_zen_fields
 
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
+      ctx2.recv
+      var shared2 = Block.init_from(shared, ctx = ctx2)
 
-    var container: ZenValue[Block]
-    container.init
+      shared.chunks[1] = ZenTable[string, string].init
+      shared.chunks[1]["hello"] = "world"
+      Zen.thread_ctx = ctx2
+      ctx2.recv
 
-    var shared = Block(id: "2")
-    shared.init_zen_fields
+      check addr(shared.chunks[]) != addr(shared2.chunks[])
+      check shared2.chunks[1]["hello"] == "world"
 
-    recv
-    var shared2 = Block.init_from(shared, ctx = ctx2)
+      shared2.chunks[1]["hello"] = "goodbye"
+      Zen.thread_ctx = ctx1
+      ctx1.recv
 
-    shared.chunks[1] = ZenTable[string, string].init
-    shared.chunks[1]["hello"] = "world"
-    Zen.thread_ctx = ctx2
-    ctx2.recv
-
-    check addr(shared.chunks[]) != addr(shared2.chunks[])
-    check shared2.chunks[1]["hello"] == "world"
-
-    shared2.chunks[1]["hello"] = "goodbye"
-    Zen.thread_ctx = ctx1
-    ctx1.recv
-
-    check shared.chunks[1]["hello"] == "goodbye"
+      check shared.chunks[1]["hello"] == "goodbye"
 
   test "free refs":
     type
       RefType = ref object of RootObj
         id: string
 
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
-
-    Zen.thread_ctx = ctx1
-
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
-
     Zen.register_type(RefType)
 
-    var src = ZenSeq[RefType].init
+    local_and_remote:
+      var src = ZenSeq[RefType].init
 
-    var obj = RefType(id: "1")
+      var obj = RefType(id: "1")
 
-    src += obj
+      src += obj
 
-    recv
-    var dest = ZenSeq[RefType](ctx2[src])
+      ctx2.recv
+      var dest = ZenSeq[RefType](ctx2[src])
 
-    private_access ZenContext
-    private_access CountedRef
+      private_access ZenContext
+      private_access CountedRef
 
-    check obj.ref_id in ctx1.ref_pool
-    check obj.ref_id in ctx2.ref_pool
-    check obj.ref_id notin ctx2.freeable_refs
+      check obj.ref_id in ctx1.ref_pool
+      check obj.ref_id in ctx2.ref_pool
+      check obj.ref_id notin ctx2.freeable_refs
 
-    let orig_dest_obj = RefType(ctx2.ref_pool[obj.ref_id].obj)
-    src -= obj
-    recv
-    check obj.ref_id in ctx2.ref_pool
-    check obj.ref_id in ctx2.freeable_refs
-    check ctx2.ref_pool[obj.ref_id].count == 0
+      let orig_dest_obj = RefType(ctx2.ref_pool[obj.ref_id].obj)
+      src -= obj
+      ctx2.recv
+      check obj.ref_id in ctx2.ref_pool
+      check obj.ref_id in ctx2.freeable_refs
+      check ctx2.ref_pool[obj.ref_id].count == 0
 
-    src += obj
-    recv
-    check obj.ref_id in ctx2.ref_pool
-    check obj.ref_id in ctx2.freeable_refs
-    check ctx2.ref_pool[obj.ref_id].count == 1
-    check dest[0] == orig_dest_obj
-    src -= obj
-    recv
+      src += obj
+      ctx2.recv
+      check obj.ref_id in ctx2.ref_pool
+      check obj.ref_id in ctx2.freeable_refs
+      check ctx2.ref_pool[obj.ref_id].count == 1
+      check dest[0] == orig_dest_obj
+      src -= obj
+      ctx2.recv
 
-    # after a timeout the unreferenced object will be removed
-    # from the dest ref_pool and freeable_refs, and if we add
-    # it back to src a new object will be created in dest
-    ctx2.freeable_refs[obj.ref_id] = MonoTime.low
-    recv
-    check obj.ref_id notin ctx2.ref_pool
-    check obj.ref_id notin ctx2.freeable_refs
-    check dest.len == 0
+      # after a timeout the unreferenced object will be removed
+      # from the dest ref_pool and freeable_refs, and if we add
+      # it back to src a new object will be created in dest
+      ctx2.freeable_refs[obj.ref_id] = MonoTime.low
+      ctx2.recv(blocking = false)
+      check obj.ref_id notin ctx2.ref_pool
+      check obj.ref_id notin ctx2.freeable_refs
+      check dest.len == 0
 
-    src += obj
-    recv
-    check dest[0].id == orig_dest_obj.id
-    check dest[0] != orig_dest_obj
+      src += obj
+      ctx2.recv
+      check dest[0].id == orig_dest_obj.id
+      check dest[0] != orig_dest_obj
 
   test "sync set":
     type Flags = enum
       One, Two, Three
 
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
-
-    Zen.thread_ctx = ctx1
-
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
-
-    let msg = "hello world"
-    var src = ZenSet[Flags].init
-    recv
-    var dest = ZenSet[Flags](ctx2[src])
-    src += One
-    recv
-    check dest.value == {One}
-    Zen.thread_ctx = ctx2
-    dest += Two
-    Zen.thread_ctx = ctx1
-    ctx1.recv
-    recv
-    check src.value == {One, Two}
+    local_and_remote:
+      let msg = "hello world"
+      var src = ZenSet[Flags].init
+      ctx2.recv
+      var dest = ZenSet[Flags](ctx2[src])
+      src += One
+      ctx2.recv
+      check dest.value == {One}
+      dest += Two
+      ctx1.recv
+      check src.value == {One, Two}
 
   test "triggered by sync":
     type
@@ -699,53 +675,45 @@ proc main =
 
     Zen.register_type(SyncUnit)
 
-    var
-      ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2")
+    local_and_remote:
+      var src = State().init_zen_fields
+      ctx2.recv
+      var dest = State.init_from(src, ctx = ctx2)
+      var src_change_id = 0
+      var dest_change_id = 0
+      src.units.changes:
+        var change = change
+        while change.triggered_by.len > 0:
+          change = Change[SyncUnit](change.triggered_by[0])
+        src_change_id = change.item.id
 
-    Zen.thread_ctx = ctx1
+      dest.units.changes:
+        var change = change
+        while change.triggered_by.len > 0:
+          change = Change[SyncUnit](change.triggered_by[0])
+        dest_change_id = change.item.id
 
-    ctx1.subscribe(ctx2)
-    ctx2.subscribe(ctx1)
+      let base = SyncUnit(id: 1).init_zen_fields
+      src.units.add base
+      ctx2.recv
 
-    var src = State().init_zen_fields
-    recv
-    var dest = State.init_from(src, ctx = ctx2)
-    var src_change_id = 0
-    var dest_change_id = 0
-    src.units.changes:
-      var change = change
-      while change.triggered_by.len > 0:
-        change = Change[SyncUnit](change.triggered_by[0])
-      src_change_id = change.item.id
+      let child = SyncUnit(id: 3).init_zen_fields
+      ctx2.recv
+      src_change_id = 0
+      dest_change_id = 0
+      base.units.add child
 
-    dest.units.changes:
-      var change = change
-      while change.triggered_by.len > 0:
-        change = Change[SyncUnit](change.triggered_by[0])
-      dest_change_id = change.item.id
+      ctx2.recv
+      check src_change_id == 3
+      check dest_change_id == 3
 
-    let base = SyncUnit(id: 1).init_zen_fields
-    src.units.add base
-    recv
+      Zen.thread_ctx = ctx2
+      let grandchild = SyncUnit(id: 4).init_zen_fields(ctx = ctx2)
+      dest.units[0].units.add grandchild
 
-    let child = SyncUnit(id: 3).init_zen_fields
-    recv
-    src_change_id = 0
-    dest_change_id = 0
-    base.units.add child
-
-    recv
-    check src_change_id == 3
-    check dest_change_id == 3
-
-    Zen.thread_ctx = ctx2
-    let grandchild = SyncUnit(id: 4).init_zen_fields(ctx = ctx2)
-    dest.units[0].units.add grandchild
-
-    recv
-    check src_change_id == 4
-    check dest_change_id == 4
+      ctx1.recv
+      check src_change_id == 4
+      check dest_change_id == 4
 
 Zen.system_init
 main()

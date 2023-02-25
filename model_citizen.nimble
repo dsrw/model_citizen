@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.10.0"
+version       = "0.10.1"
 author        = "Scott Wadden"
 description   = "Nothing for now"
 license       = "MIT"
@@ -13,5 +13,7 @@ requires(
   "print#b671140",
   "threading",
   "chronicles",
-  "flatty"
+  "flatty",
+  "netty",
+  "supersnappy"
 )
