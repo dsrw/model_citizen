@@ -50,14 +50,16 @@ proc main =
       const recv_duration = init_duration(milliseconds = 10)
       var
         ctx1 {.inject.} = ZenContext.init(name = "ctx1", listen = true,
-            min_recv_duration = recv_duration, blocking_recv  = true)
+            min_recv_duration = recv_duration, blocking_recv = true)
 
         ctx2 {.inject.} = ZenContext.init(name = "ctx2",
-            min_recv_duration = recv_duration, blocking_recv  = true)
+            min_recv_duration = recv_duration, blocking_recv = true)
 
-      ctx2.subscribe("127.0.0.1")
+      ctx2.subscribe "127.0.0.1", callback = proc() =
+        ctx1.recv(blocking = false)
+
       Zen.thread_ctx = ctx1
-      ctx1.recv
+      ctx1.recv(blocking = false)
 
       body
 

@@ -10,7 +10,7 @@ var worker_thread: Thread[ZenContext]
 
 proc start_worker(ctx: ZenContext) {.thread.} =
   Zen.thread_ctx = ctx
-  ctx.recv
+
   var b = ZenValue[string](ctx["t1"])
   var working = true
   b.changes:
@@ -34,9 +34,11 @@ proc thread_tests =
     Zen.thread_ctx.clear
     Zen.thread_ctx = ZenContext.init(name = "main")
     var ctx = ZenContext.init(name = "worker", listen = true)
-    Zen.thread_ctx.subscribe("127.0.0.1")
+    Zen.thread_ctx.subscribe "127.0.0.1", callback = proc() =
+      ctx.recv
 
     var a = Zen.init("", id = "t1")
+    ctx.recv(blocking = true)
     global_lock.acquire()
     worker_thread.create_thread(start_worker, ctx)
     global_cond.wait(global_lock)

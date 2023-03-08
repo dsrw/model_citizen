@@ -1,3 +1,4 @@
+
 include prelude
 
 proc from_flatty(bin: string, T: type, ctx: ZenContext): T =
@@ -27,8 +28,8 @@ proc register_type*(_: type Zen, typ: type) =
         dest = nil
       elif src.has_custom_pragma(local):
         dest = dest.type.default
-
-    result = clone.to_flatty
+    {.cast(no_side_effect).}:
+      result = clone.to_flatty
 
   let parse = func(self: ref RootObj, ctx: ZenContext,
       clone_from: string): ref RootObj =
@@ -387,7 +388,11 @@ proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
   if bidirectional:
     ctx.subscribe(self, bidirectional = false)
 
-proc subscribe*(self: ZenContext, address: string, bidirectional = true) =
+proc subscribe*(self: ZenContext, address: string, bidirectional = true,
+    callback: proc() = nil) = # callback param is a hack to allow testing
+    # networked contexts on the same thread. Not meant to be used in non-test
+    # code
+
   debug "remote subscribe", address
   if self.reactor.is_nil:
     self.reactor = new_reactor()
@@ -398,8 +403,17 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true) =
   if bidirectional:
     self.add_subscriber Subscription(kind: Remote, connection: connection,
       ctx_name: address)
-  self.reactor.tick
-  self.remote_messages &= self.reactor.messages
+  var finished = false
+  while not finished:
+    self.reactor.tick
+    for msg in self.reactor.messages:
+      if msg.data == "ACK":
+        finished = true
+      else:
+        self.remote_messages &= msg
+    if callback != nil:
+      callback()
+  self.recv(blocking = false)
 
 proc close*(self: ZenContext) =
   if not self.reactor.is_nil:
@@ -444,6 +458,9 @@ proc recv*(self: ZenContext,
         if msg.kind == Subscribe:
           self.add_subscriber Subscription(kind: Remote,
               connection: raw_msg.conn, ctx_name: $raw_msg.conn.address)
+          self.reactor.send(raw_msg.conn, "ACK")
+          self.reactor.tick
+          self.remote_messages &= self.reactor.messages
 
         else:
           self.process_message(msg)
@@ -458,8 +475,9 @@ proc remaining*(self: Chan): range[0.0..1.0] =
   result = 1.0 - self.peek / size
 
 proc pressure*(self: ZenContext): range[0.0..1.0] =
-  1.0 - (@[self.chan.remaining] &
-      self.subscribers.map_it(it.chan.remaining)).min
+  1.0 - (@[self.chan.remaining] & self.subscribers.
+      filter_it(it.kind == Local).
+      map_it(it.chan.remaining)).min
 
 proc chan_full*(self: Chan): bool =
   self.remaining < 0.1
