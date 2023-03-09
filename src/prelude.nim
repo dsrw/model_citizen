@@ -44,6 +44,10 @@ type
     triggered_by_type*: string
     type_name*: string
 
+  OperationContext = object
+    publish: bool
+    source: string
+
   Message = object
     kind: MessageKind
     object_id: string
@@ -57,12 +61,12 @@ type
       src: string
 
   CreateInitializer = proc(bin: string, ctx: ZenContext, id: string,
-      track_children, publish: bool)
+      track_children: bool, op_ctx: OperationContext)
 
   CreatePayload = tuple
     bin: string
     track_children: bool
-    publish: bool
+    op_ctx: OperationContext
 
   Change*[O] = ref object of BaseChange
     item*: O
@@ -123,7 +127,7 @@ type
         broadcast = false) {.gcsafe.}
 
     change_receiver: proc(self: ref ZenBase, msg: Message,
-        publish: bool) {.gcsafe.}
+        op_ctx: OperationContext) {.gcsafe.}
 
     ctx*: ZenContext
 

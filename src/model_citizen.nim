@@ -345,7 +345,7 @@ proc process_message(self: ZenContext, msg: Message) =
     {.cast(gcsafe).}:
       let fn = type_initializers[msg.type_id]
       let args = msg.obj.from_flatty(CreatePayload, self)
-      fn(args.bin, self, msg.object_id, args.track_children, false)
+      fn(args.bin, self, msg.object_id, args.track_children, OperationContext(publish: false))
   elif msg.kind == Destroy:
     let obj = self.objects[msg.object_id]
     assert obj.valid
@@ -353,7 +353,7 @@ proc process_message(self: ZenContext, msg: Message) =
     self.objects.del(msg.object_id)
   elif msg.kind != Blank:
     let obj = self.objects[msg.object_id]
-    obj.change_receiver(obj, msg, publish = false)
+    obj.change_receiver(obj, msg, op_ctx = OperationContext(publish: false))
   else:
     raise_assert "Can't recv a blank message"
 
@@ -519,8 +519,8 @@ proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
       self.ctx.reactor.tick
       self.ctx.remote_messages &= self.ctx.reactor.messages
 
-proc process_changes[T](self: Zen[T, T], initial: sink T, touch = false,
-    publish_changes: bool) =
+proc process_changes[T](self: Zen[T, T], initial: sink T, op_ctx: OperationContext,
+    touch = false) =
 
   if initial != self.tracked:
     var add_flags = {Added, Modified}
@@ -535,7 +535,7 @@ proc process_changes[T](self: Zen[T, T], initial: sink T, touch = false,
     when T isnot Zen and T is ref:
       self.ctx.ref_count(changes)
 
-    if publish_changes:
+    if op_ctx.publish:
       self.publish_changes(changes)
     self.trigger_callbacks(changes)
 
@@ -544,12 +544,12 @@ proc process_changes[T](self: Zen[T, T], initial: sink T, touch = false,
     when T isnot Zen and T is ref:
       self.ctx.ref_count(changes)
 
-    if publish_changes:
+    if op_ctx.publish:
       self.publish_changes(changes)
     self.trigger_callbacks(changes)
 
 proc process_changes[T: seq | set, O](self: Zen[T, O],
-    initial: sink T, touch = T.default, publish_changes: bool) =
+    initial: sink T, op_ctx: OperationContext, touch = T.default) =
 
   let added = (self.tracked - initial).map_it:
     let changes = if it in touch: {Touched} else: {}
@@ -568,12 +568,12 @@ proc process_changes[T: seq | set, O](self: Zen[T, O],
   when O isnot Zen and O is ref:
     self.ctx.ref_count(changes)
 
-  if publish_changes:
+  if op_ctx.publish:
     self.publish_changes(changes)
   self.trigger_callbacks(changes)
 
 proc process_changes[K, V](self: Zen[Table[K, V],
-  Pair[K, V]], initial_table: sink Table[K, V], publish_changes: bool) =
+  Pair[K, V]], initial_table: sink Table[K, V], op_ctx: OperationContext) =
 
   let
     tracked: seq[Pair[K, V]] = self.tracked.pairs.to_seq
@@ -595,12 +595,12 @@ proc process_changes[K, V](self: Zen[Table[K, V],
   when V isnot Zen and V is ref:
     self.ctx.ref_count(changes)
 
-  if publish_changes:
+  if op_ctx.publish:
     self.publish_changes(changes)
   self.trigger_callbacks(changes)
 
 
-template mutate_and_touch(touch, publish, body: untyped) =
+template mutate_and_touch(touch, op_ctx, body: untyped) =
   when self.tracked is Zen:
     let initial_values = self.tracked[]
   elif self.tracked is ref:
@@ -608,9 +608,9 @@ template mutate_and_touch(touch, publish, body: untyped) =
   else:
     let initial_values = self.tracked.dup
   body
-  self.process_changes(initial_values, touch, publish_changes = publish)
+  self.process_changes(initial_values, op_ctx, touch)
 
-template mutate(publish: bool, body: untyped) =
+template mutate(op_ctx: OperationContext, body: untyped) =
   when self.tracked is Zen:
     let initial_values = self.tracked[]
   elif self.tracked is ref:
@@ -618,19 +618,19 @@ template mutate(publish: bool, body: untyped) =
   else:
     let initial_values = self.tracked.dup
   body
-  self.process_changes(initial_values, publish_changes = publish)
+  self.process_changes(initial_values, op_ctx)
 
-proc change[T, O](self: Zen[T, O], items: T, add: bool, publish: bool) =
-  mutate(publish):
+proc change[T, O](self: Zen[T, O], items: T, add: bool, op_ctx: OperationContext) =
+  mutate(op_ctx):
     if add:
       self.tracked = self.tracked & items
     else:
       self.tracked = self.tracked - items
 
 proc change_and_touch[T, O](self: Zen[T, O], items: T, add: bool,
-    publish: bool) =
+    op_ctx: OperationContext) =
 
-  mutate_and_touch(touch = items, publish):
+  mutate_and_touch(touch = items, op_ctx):
     if add:
       self.tracked = self.tracked & items
     else:
@@ -638,14 +638,14 @@ proc change_and_touch[T, O](self: Zen[T, O], items: T, add: bool,
 
 proc clear*[T, O](self: Zen[T, O]) =
   assert self.valid
-  mutate(true):
+  mutate(OperationContext(publish: true)):
     self.tracked = T.default
 
-proc `value=`*[T, O](self: Zen[T, O], value: T, publish = true) =
+proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext(publish: true)) =
   assert self.valid
 
   if self.tracked != value:
-    mutate(publish):
+    mutate(op_ctx):
       self.tracked = value
 
 proc value*[T, O](self: Zen[T, O]): T =
@@ -661,7 +661,7 @@ proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
   self.tracked[index]
 
 proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
-    publish: bool) =
+    op_ctx: OperationContext) =
 
   assert self.valid
 
@@ -681,14 +681,14 @@ proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     when V isnot Zen and V is ref:
       self.ctx.ref_count changes
 
-    if publish:
+    if op_ctx.publish:
       self.publish_changes changes
     self.trigger_callbacks changes
 
   elif key in self.tracked and touch:
     let changes = @[Change.init(Pair[K, V] (key, value), {Touched})]
 
-    if publish:
+    if op_ctx.publish:
       self.publish_changes changes
     self.trigger_callbacks changes
 
@@ -701,19 +701,19 @@ proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     when V isnot Zen and V is ref:
       self.ctx.ref_count changes
 
-    if publish:
+    if op_ctx.publish:
       self.publish_changes changes
     self.trigger_callbacks changes
 
-proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V, publish = true) =
-  self.put(key, value, touch = false, publish = publish)
+proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V, op_ctx = OperationContext(publish: true)) =
+  self.put(key, value, touch = false, op_ctx = op_ctx)
 
-proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T, publish = true) =
+proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T, op_ctx = OperationContext(publish: true)) =
   assert self.valid
-  mutate(publish):
+  mutate(op_ctx):
     self.tracked[index] = value
 
-proc add*[T, O](self: Zen[T, O], value: O, publish = true) =
+proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: true)) =
   when O is Zen:
     assert self.valid(value)
   else:
@@ -724,11 +724,11 @@ proc add*[T, O](self: Zen[T, O], value: O, publish = true) =
   when O isnot Zen and O is ref:
     self.ctx.ref_count(added)
 
-  if publish:
+  if op_ctx.publish:
     self.publish_changes(added)
   self.trigger_callbacks(added)
 
-template remove(self, key, item_exp, fun, publish) =
+template remove(self, key, item_exp, fun, op_ctx) =
   let obj = item_exp
   self.tracked.fun key
   let removed = @[Change.init(obj, {Removed})]
@@ -736,64 +736,64 @@ template remove(self, key, item_exp, fun, publish) =
   when obj isnot Zen and obj is ref:
     self.ctx.ref_count(added)
 
-  if publish:
+  if op_ctx.publish:
     self.publish_changes(removed)
   self.trigger_callbacks(removed)
 
-proc del*[T, O](self: Zen[T, O], value: O, publish = true) =
+proc del*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: true)) =
   assert self.valid
   if value in self.tracked:
-    remove(self, value, value, del, publish)
+    remove(self, value, value, del, op_ctx)
 
-proc del*[K, V](self: ZenTable[K, V], key: K, publish = true) =
+proc del*[K, V](self: ZenTable[K, V], key: K, op_ctx = OperationContext(publish: true)) =
   assert self.valid
   if key in self.tracked:
-    remove(self, key, (key: key, value: self.tracked[key]), del, publish)
+    remove(self, key, (key: key, value: self.tracked[key]), del, op_ctx)
 
-proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal, publish = true) =
+proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal, op_ctx = OperationContext(publish: true)) =
   assert self.valid
   if index < self.tracked.len:
-    remove(self, index, self.tracked[index], del, publish)
+    remove(self, index, self.tracked[index], del, op_ctx)
 
 proc delete*[T, O](self: Zen[T, O], value: O) =
   assert self.valid
   if value in self.tracked:
-    remove(self, value, value, delete, publish = true)
+    remove(self, value, value, delete, op_ctx = OperationContext(publish: true))
 
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
   assert self.valid
   if key in self.tracked:
     remove(self, key, (key: key, value: self.tracked[key]), delete,
-        publish = true)
+        op_ctx = OperationContext(publish: true))
 
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
   assert self.valid
   if index < self.tracked.len:
-    remove(self, index, self.tracked[index], delete, publish = true)
+    remove(self, index, self.tracked[index], delete, op_ctx = OperationContext(publish: true))
 
-proc touch[K, V](self: ZenTable[K, V], pair: Pair[K, V], publish: bool) =
+proc touch[K, V](self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext) =
   assert self.valid
-  self.put(pair.key, pair.value, touch = true, publish = publish)
+  self.put(pair.key, pair.value, touch = true, op_ctx = op_ctx)
 
-proc touch*[T, O](self: ZenTable[T, O], key: T, value: O, publish = true) =
+proc touch*[T, O](self: ZenTable[T, O], key: T, value: O, op_ctx = OperationContext(publish: true)) =
   assert self.valid
-  self.put(key, value, touch = true, publish = publish)
+  self.put(key, value, touch = true, op_ctx = op_ctx)
 
-proc touch*[T: set, O](self: Zen[T, O], value: O, publish = true) =
+proc touch*[T: set, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: true)) =
   assert self.valid
-  self.change_and_touch({value}, true, publish = publish)
+  self.change_and_touch({value}, true, op_ctx = op_ctx)
 
-proc touch*[T: seq, O](self: Zen[T, O], value: O, publish = true) =
+proc touch*[T: seq, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: true)) =
   assert self.valid
-  self.change_and_touch(@[value], true, publish = publish)
+  self.change_and_touch(@[value], true, op_ctx = op_ctx)
 
-proc touch*[T, O](self: Zen[T, O], value: T, publish = true) =
+proc touch*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext(publish: true)) =
   assert self.valid
-  self.change_and_touch(value, true, publish = publish)
+  self.change_and_touch(value, true, op_ctx = op_ctx)
 
-proc touch*[T](self: ZenValue[T], value: T, publish = true) =
+proc touch*[T](self: ZenValue[T], value: T, op_ctx = OperationContext(publish: true)) =
   assert self.valid
-  mutate_and_touch(touch = true, publish):
+  mutate_and_touch(touch = true, op_ctx):
     self.tracked = value
 
 proc len*(self: Zen): int =
@@ -802,11 +802,11 @@ proc len*(self: Zen): int =
 
 proc `+=`*[T, O](self: Zen[T, O], value: T) =
   assert self.valid
-  self.change(value, true, publish = true)
+  self.change(value, true, op_ctx = OperationContext(publish: true))
 
 proc `+=`*[O](self: ZenSet[O], value: O) =
   assert self.valid
-  self.change({value}, true, publish = true)
+  self.change({value}, true, op_ctx = OperationContext(publish: true))
 
 proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
   assert self.valid
@@ -814,15 +814,15 @@ proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
 
 proc `-=`*[T, O](self: Zen[T, O], value: T) =
   assert self.valid
-  self.change(value, false, publish = true)
+  self.change(value, false, op_ctx = OperationContext(publish: true))
 
 proc `-=`*[T: set, O](self: Zen[T, O], value: O) =
   assert self.valid
-  self.change({value}, false, publish = true)
+  self.change({value}, false, op_ctx = OperationContext(publish: true))
 
 proc `-=`*[T: seq, O](self: Zen[T, O], value: O) =
   assert self.valid
-  self.change(@[value], false, publish = true)
+  self.change(@[value], false, op_ctx = OperationContext(publish: true))
 
 proc `&=`*[T, O](self: Zen[T, O], value: O) =
   assert self.valid
@@ -832,32 +832,32 @@ proc `==`*(a, b: Zen): bool =
   a.is_nil == b.is_nil and a.destroyed == b.destroyed and
     a.tracked == b.tracked and a.id == b.id
 
-proc assign[O](self: ZenSeq[O], value: O, publish: bool) =
-  self.add(value, publish = publish)
+proc assign[O](self: ZenSeq[O], value: O, op_ctx: OperationContext) =
+  self.add(value, op_ctx = op_ctx)
 
-proc assign[O](self: ZenSet[O], value: O, publish: bool) =
-  self.change({value}, add = true, publish = publish)
+proc assign[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
+  self.change({value}, add = true, op_ctx = op_ctx)
 
-proc assign[K, V](self: ZenTable[K, V], pair: Pair[K, V], publish: bool) =
-  self.`[]=`(pair.key, pair.value, publish = publish)
+proc assign[K, V](self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext) =
+  self.`[]=`(pair.key, pair.value, op_ctx = op_ctx)
 
-proc assign[T, O](self: Zen[T, O], value: O, publish: bool) =
-  self.`value=`(value, publish)
+proc assign[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
+  self.`value=`(value, op_ctx)
 
-proc unassign[O](self: ZenSeq[O], value: O, publish: bool) =
-  self.change(@[value], false, publish = publish)
+proc unassign[O](self: ZenSeq[O], value: O, op_ctx: OperationContext) =
+  self.change(@[value], false, op_ctx = op_ctx)
 
-proc unassign[O](self: ZenSet[O], value: O, publish: bool) =
-  self.change({value}, false, publish = publish)
+proc unassign[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
+  self.change({value}, false, op_ctx = op_ctx)
 
-proc unassign[K, V](self: ZenTable[K, V], pair: Pair[K, V], publish: bool) =
-  self.del(pair.key, publish = publish)
+proc unassign[K, V](self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext) =
+  self.del(pair.key, op_ctx = op_ctx)
 
-proc unassign[T, O](self: Zen[T, O], value: O, publish: bool) =
+proc unassign[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
   discard
 
 proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
-    publish: bool): Zen[T, O] {.gcsafe.} =
+    op_ctx: OperationContext): Zen[T, O] {.gcsafe.} =
 
   log_defaults
 
@@ -873,7 +873,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     debug "create", sub
     let bin = self.tracked.to_flatty
     let value: CreatePayload = (bin: bin, track_children: self.track_children,
-        publish: publish)
+        op_ctx: op_ctx)
 
     let id = self.id
     let track_children = self.track_children
@@ -888,12 +888,12 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
         initializers.add quote do:
           type_initializers[zen_type_id] = proc(bin: string, ctx: ZenContext,
-              id: string, track_children, publish: bool) =
+              id: string, track_children: bool, op_ctx: OperationContext) =
 
             var value = bin.from_flatty(`typ`, ctx)
             if id notin ctx:
               discard Zen.init(value, ctx = ctx, id = id,
-                  track_children = track_children, publish = publish)
+                  track_children = track_children, op_ctx = op_ctx)
 
       var msg = Message(kind: Create, obj: value.to_flatty,
           type_id: zen_type_id, object_id: id)
@@ -952,7 +952,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
     result = msg
 
-  self.change_receiver = proc(self: ref ZenBase, msg: Message, publish: bool) =
+  self.change_receiver = proc(self: ref ZenBase, msg: Message, op_ctx: OperationContext) =
     assert self of Zen[T, O]
     let self = Zen[T, O](self)
     when O is Zen:
@@ -993,69 +993,69 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
         item = msg.obj.from_flatty(O, self.ctx)
 
     if msg.kind == Assign:
-      self.assign(item, publish = publish)
+      self.assign(item, op_ctx = op_ctx)
     elif msg.kind == Unassign:
-      self.unassign(item, publish = publish)
+      self.unassign(item, op_ctx = op_ctx)
     elif msg.kind == Touch:
-     self.touch(item, publish = publish)
+     self.touch(item, op_ctx = op_ctx)
     else:
       raise_assert "Can't handle message " & $msg.kind
 
   assert self.ctx == nil
   self.ctx = ctx
 
-  if publish:
+  if op_ctx.publish:
     self.publish_create(broadcast = true)
   self
 
 proc init*(T: type Zen, track_children = true, ctx = ctx(), id = ""): T =
-  T(track_children: track_children).defaults(ctx, id, publish = true)
+  T(track_children: track_children).defaults(ctx, id, op_ctx = OperationContext(publish: true))
 
 proc init*(_: type Zen,
   T: type[ref | object | SomeOrdinal | SomeNumber | string],
   track_children = true, ctx = ctx(), id = ""): Zen[T, T] =
 
   result = Zen[T, T](track_children: track_children).defaults(ctx, id,
-      publish = true)
+      op_ctx = OperationContext(publish: true))
 
 proc init*[T: ref | object | SomeOrdinal | SomeNumber | string | ptr](
     _: type Zen, tracked: T, track_children = true, ctx = ctx(), id = "",
-    publish = true): Zen[T, T] =
+    op_ctx = OperationContext(publish: true)): Zen[T, T] =
 
   var self = Zen[T, T](track_children: track_children).defaults(
-      ctx, id, publish)
+      ctx, id, op_ctx)
 
-  mutate(publish):
+  mutate(op_ctx):
     self.tracked = tracked
   result = self
 
 proc init*[O](_: type Zen, tracked: set[O], track_children = true,
-    ctx = ctx(), id = "", publish = true): Zen[set[O], O] =
+    ctx = ctx(), id = "", op_ctx = OperationContext(publish: true)): Zen[set[O], O] =
 
   var self = Zen[set[O], O](track_children: track_children).defaults(
-      ctx, id, publish)
+      ctx, id, op_ctx)
 
-  mutate(publish):
+  mutate(op_ctx):
     self.tracked = tracked
   result = self
 
 proc init*[K, V](_: type Zen, tracked: Table[K, V], track_children = true,
-    ctx = ctx(), id = "", publish = true): ZenTable[K, V] =
+    ctx = ctx(), id = "", op_ctx = OperationContext(publish: true)): ZenTable[K, V] =
 
   var self = ZenTable[K, V](track_children: track_children).defaults(
-      ctx, id, publish)
+      ctx, id, op_ctx)
 
-  mutate(publish):
+  mutate(op_ctx):
     self.tracked = tracked
   result = self
 
 proc init*[O](_: type Zen, tracked: open_array[O], track_children = true,
-    ctx = ctx(), id = "", publish = true): Zen[seq[O], O] =
+    ctx = ctx(), id = "", op_ctx = OperationContext(publish: true)): Zen[seq[O], O] =
 
   var self = Zen[seq[O], O](track_children: track_children).defaults(
-      ctx, id, publish)
+      ctx, id, op_ctx)
 
-  mutate(publish):
+  mutate(op_ctx):
     self.tracked = tracked.to_seq
   result = self
 
@@ -1063,25 +1063,25 @@ proc init*[O](_: type Zen, T: type seq[O], track_children = true, ctx = ctx(),
   id = ""): Zen[seq[O], O] =
 
   result = Zen[seq[O], O](track_children: track_children).defaults(
-      ctx, id, publish = true)
+      ctx, id, op_ctx = OperationContext(publish: true))
 
 proc init*[O](_: type Zen, T: type set[O], track_children = true, ctx = ctx(),
   id = ""): Zen[set[O], O] =
 
   result = Zen[set[O], O](track_children: track_children).defaults(
-      ctx, id, publish = true)
+      ctx, id, op_ctx = OperationContext(publish: true))
 
 proc init*[K, V](_: type Zen, T: type Table[K, V], track_children = true,
   ctx = ctx(), id = ""): Zen[Table[K, V], Pair[K, V]] =
 
   result = Zen[Table[K, V], Pair[K, V]](track_children: track_children)
-      .defaults(ctx, id, publish = true)
+      .defaults(ctx, id, op_ctx = OperationContext(publish: true))
 
 proc init*(_: type Zen, K, V: type, track_children = true, ctx = ctx(),
   id = ""): ZenTable[K, V] =
 
   result = ZenTable[K, V](track_children: track_children).defaults(
-      ctx, id, publish = true)
+      ctx, id, op_ctx = OperationContext(publish: true))
 
 proc init*[K, V](t: type Zen, tracked: open_array[(K, V)],
   track_children = true, ctx = ctx(), id = ""): ZenTable[K, V] =
