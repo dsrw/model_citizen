@@ -31,6 +31,9 @@ else:
 type
   ZID* = uint16
 
+  ZenFlags* = enum
+    TrackChildren, SyncLocal, SyncRemote
+
   ChangeKind* = enum
     Created, Added, Removed, Modified, Touched, Closed
 
@@ -60,11 +63,11 @@ type
       id: int
 
   CreateInitializer = proc(bin: string, ctx: ZenContext, id: string,
-      track_children: bool, op_ctx: OperationContext)
+      flags: set[ZenFlags], op_ctx: OperationContext)
 
   CreatePayload = tuple
     bin: string
-    track_children: bool
+    flags: set[ZenFlags]
     op_ctx: OperationContext
 
   Change*[O] = ref object of BaseChange
@@ -118,7 +121,7 @@ type
     destroyed: bool
     link_zid: ZID
     paused_zids: set[ZID]
-    track_children: bool
+    flags: set[ZenFlags]
     build_message: proc(self: ref ZenBase, change: BaseChange, id: string,
         trace: string): Message {.gcsafe.}
 
@@ -153,6 +156,7 @@ var active_ctx {.threadvar.}: ZenContext
 var flatty_ctx {.threadvar.}: ZenContext
 
 const port = 9632
+const default_flags* = {TrackChildren, SyncLocal, SyncRemote}
 
 template zen_ignore* {.pragma.}
 

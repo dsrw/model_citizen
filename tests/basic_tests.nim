@@ -280,10 +280,10 @@ proc main =
         units: Zen[seq[Unit], Unit]
         flags: ZenSet[UnitFlags]
 
-    proc init(_: type Unit, id = 0, track_children = true): Unit =
+    proc init(_: type Unit, id = 0, flags = default_flags): Unit =
       result = Unit(id: id)
-      result.units = Zen.init(seq[Unit], track_children)
-      result.flags = Zen.init(set[UnitFlags], track_children)
+      result.units = Zen.init(seq[Unit], flags)
+      result.flags = Zen.init(set[UnitFlags], flags)
 
     var a = Unit.init
     var id = a.units.count_changes
@@ -313,7 +313,7 @@ proc main =
     check f.item == Targeted
 
     # without child tracking:
-    a = Unit.init(track_children = false)
+    a = Unit.init(flags = {SyncLocal, SyncRemote})
     id = a.units.count_changes
     b = Unit.init
     1.changes: a.units.add b

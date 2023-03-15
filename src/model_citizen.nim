@@ -261,7 +261,7 @@ proc link_or_unlink[T, O](self: Zen[T, O], change: Change[O], link: bool) =
   template value(change: Change[Pair]): untyped = change.item.value
   template value(change: not Change[Pair]): untyped = change.item
 
-  if self.track_children:
+  if TrackChildren in self.flags:
     if link:
       when change.value is Zen:
         self.link_child(change.item, change.item)
@@ -283,7 +283,7 @@ proc link_or_unlink[T, O](self: Zen[T, O], change: Change[O], link: bool) =
 proc link_or_unlink[T, O](self: Zen[T, O],
   changes: seq[Change[O]], link: bool) =
 
-  if self.track_children:
+  if TrackChildren in self.flags:
     for change in changes:
       self.link_or_unlink(change, link)
 
@@ -350,7 +350,7 @@ proc process_message(self: ZenContext, msg: Message) =
     {.cast(gcsafe).}:
       let fn = type_initializers[msg.type_id]
       let args = msg.obj.from_flatty(CreatePayload, self)
-      fn(args.bin, self, msg.object_id, args.track_children,
+      fn(args.bin, self, msg.object_id, args.flags,
           OperationContext(source: msg.source))
 
   elif msg.kind == Destroy:
@@ -895,11 +895,11 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
     debug "create", sub
     let bin = self.tracked.to_flatty
-    let value: CreatePayload = (bin: bin, track_children: self.track_children,
+    let value: CreatePayload = (bin: bin, flags: self.flags,
         op_ctx: op_ctx)
 
     let id = self.id
-    let track_children = self.track_children
+    let flags = self.flags
 
     template send_msg(src_ctx, sub) =
       static:
@@ -911,12 +911,12 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
         initializers.add quote do:
           type_initializers[zen_type_id] = proc(bin: string, ctx: ZenContext,
-              id: string, track_children: bool, op_ctx: OperationContext) =
+              id: string, flags: set[ZenFlags], op_ctx: OperationContext) =
 
             var value = bin.from_flatty(`typ`, ctx)
             if id notin ctx:
               discard Zen.init(value, ctx = ctx, id = id,
-                  track_children = track_children, op_ctx)
+                  flags = flags, op_ctx)
 
       var msg = Message(kind: Create, obj: value.to_flatty,
           type_id: zen_type_id, object_id: id)
@@ -1031,100 +1031,100 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   self.publish_create(broadcast = true, op_ctx = op_ctx)
   self
 
-proc init*(T: type Zen, track_children = true, ctx = ctx(), id = "",
+proc init*(T: type Zen, flags = default_flags, ctx = ctx(), id = "",
     op_ctx = OperationContext()): T =
 
   ctx.setup_op_ctx
-  T(track_children: track_children).defaults(ctx, id, op_ctx)
+  T(flags: flags).defaults(ctx, id, op_ctx)
 
 proc init*(_: type Zen,
     T: type[ref | object | SomeOrdinal | SomeNumber | string],
-    track_children = true, ctx = ctx(), id = "",
+    flags = default_flags, ctx = ctx(), id = "",
     op_ctx = OperationContext()): Zen[T, T] =
 
   ctx.setup_op_ctx
-  result = Zen[T, T](track_children: track_children).defaults(ctx, id, op_ctx)
+  result = Zen[T, T](flags: flags).defaults(ctx, id, op_ctx)
 
 proc init*[T: ref | object | SomeOrdinal | SomeNumber | string | ptr](
-    _: type Zen, tracked: T, track_children = true, ctx = ctx(),
+    _: type Zen, tracked: T, flags = default_flags, ctx = ctx(),
     id = "", op_ctx = OperationContext()): Zen[T, T] =
 
   ctx.setup_op_ctx
-  var self = Zen[T, T](track_children: track_children).defaults(
+  var self = Zen[T, T](flags: flags).defaults(
       ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked
   result = self
 
-proc init*[O](_: type Zen, tracked: set[O], track_children = true, ctx = ctx(),
+proc init*[O](_: type Zen, tracked: set[O], flags = default_flags, ctx = ctx(),
     id = "", op_ctx = OperationContext()): Zen[set[O], O] =
 
   ctx.setup_op_ctx
-  var self = Zen[set[O], O](track_children: track_children).defaults(
+  var self = Zen[set[O], O](flags: flags).defaults(
       ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked
   result = self
 
-proc init*[K, V](_: type Zen, tracked: Table[K, V], track_children = true,
+proc init*[K, V](_: type Zen, tracked: Table[K, V], flags = default_flags,
     ctx = ctx(), id = "", op_ctx = OperationContext()): ZenTable[K, V] =
 
   ctx.setup_op_ctx
-  var self = ZenTable[K, V](track_children: track_children).defaults(
+  var self = ZenTable[K, V](flags: flags).defaults(
       ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked
   result = self
 
-proc init*[O](_: type Zen, tracked: open_array[O], track_children = true,
+proc init*[O](_: type Zen, tracked: open_array[O], flags = default_flags,
     ctx = ctx(), id = "", op_ctx = OperationContext()): Zen[seq[O], O] =
 
   ctx.setup_op_ctx
-  var self = Zen[seq[O], O](track_children: track_children).defaults(
+  var self = Zen[seq[O], O](flags: flags).defaults(
       ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked.to_seq
   result = self
 
-proc init*[O](_: type Zen, T: type seq[O], track_children = true, ctx = ctx(),
+proc init*[O](_: type Zen, T: type seq[O], flags = default_flags, ctx = ctx(),
     id = "", op_ctx = OperationContext()): Zen[seq[O], O] =
 
   ctx.setup_op_ctx
-  result = Zen[seq[O], O](track_children: track_children).defaults(
+  result = Zen[seq[O], O](flags: flags).defaults(
       ctx, id, op_ctx)
 
-proc init*[O](_: type Zen, T: type set[O], track_children = true, ctx = ctx(),
+proc init*[O](_: type Zen, T: type set[O], flags = default_flags, ctx = ctx(),
     id = "", op_ctx = OperationContext()): Zen[set[O], O] =
 
   ctx.setup_op_ctx
-  result = Zen[set[O], O](track_children: track_children).defaults(
+  result = Zen[set[O], O](flags: flags).defaults(
       ctx, id, op_ctx)
 
-proc init*[K, V](_: type Zen, T: type Table[K, V], track_children = true,
+proc init*[K, V](_: type Zen, T: type Table[K, V], flags = default_flags,
     ctx = ctx(), id = "", op_ctx = OperationContext()):
     Zen[Table[K, V], Pair[K, V]] =
 
   ctx.setup_op_ctx
-  result = Zen[Table[K, V], Pair[K, V]](track_children: track_children)
+  result = Zen[Table[K, V], Pair[K, V]](flags: flags)
       .defaults(ctx, id, op_ctx)
 
-proc init*(_: type Zen, K, V: type, track_children = true, ctx = ctx(),
+proc init*(_: type Zen, K, V: type, flags = default_flags, ctx = ctx(),
     id = "", op_ctx = OperationContext()): ZenTable[K, V] =
 
   ctx.setup_op_ctx
-  result = ZenTable[K, V](track_children: track_children).defaults(
+  result = ZenTable[K, V](flags: flags).defaults(
       ctx, id, op_ctx)
 
 proc init*[K, V](t: type Zen, tracked: open_array[(K, V)],
-    track_children = true, ctx = ctx(), id = "",
+    flags = default_flags, ctx = ctx(), id = "",
     op_ctx = OperationContext()): ZenTable[K, V] =
 
   ctx.setup_op_ctx
-  result = Zen.init(tracked.to_table, track_children = track_children,
+  result = Zen.init(tracked.to_table, flags = flags,
     ctx = ctx, id = id, op_ctx = op_ctx)
 
 proc init*[T, O](self: var Zen[T, O], ctx = ctx(), id = "",
