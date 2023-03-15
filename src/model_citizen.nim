@@ -1,6 +1,12 @@
 
 include prelude
 
+template setup_op_ctx(self: ZenContext) =
+  let op_ctx = if op_ctx == OperationContext.default:
+    OperationContext(source: self.name)
+  else:
+    op_ctx
+
 proc from_flatty(bin: string, T: type, ctx: ZenContext): T =
   flatty_ctx = ctx
   bin.from_flatty(T)
@@ -331,7 +337,7 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
 
 proc process_message(self: ZenContext, msg: Message) =
   when defined(zen_trace):
-    let src = self.name & "-" & msg.src
+    let src = self.name & "-" & msg.source
     if src in self.last_received_id:
       if msg.id != self.last_received_id[src] + 1:
         raise_assert &"src={src} msg.id={msg.id} " &
@@ -340,12 +346,13 @@ proc process_message(self: ZenContext, msg: Message) =
     debug "receiving", msg
 
   if msg.kind == Create:
-
     assert msg.obj != ""
     {.cast(gcsafe).}:
       let fn = type_initializers[msg.type_id]
       let args = msg.obj.from_flatty(CreatePayload, self)
-      fn(args.bin, self, msg.object_id, args.track_children, OperationContext(publish: false))
+      fn(args.bin, self, msg.object_id, args.track_children,
+          OperationContext(source: msg.source))
+
   elif msg.kind == Destroy:
     let obj = self.objects[msg.object_id]
     assert obj.valid
@@ -353,13 +360,14 @@ proc process_message(self: ZenContext, msg: Message) =
     self.objects.del(msg.object_id)
   elif msg.kind != Blank:
     let obj = self.objects[msg.object_id]
-    obj.change_receiver(obj, msg, op_ctx = OperationContext(publish: false))
+    obj.change_receiver(obj, msg, op_ctx = OperationContext(source: msg.source))
+
   else:
     raise_assert "Can't recv a blank message"
 
 proc send(self: ZenContext, sub: Subscription, msg: sink Message) =
+  msg.source = self.name
   when defined(zen_trace):
-    msg.src = self.name
     if sub.ctx_name notin self.last_msg_id:
       self.last_msg_id[sub.ctx_name] = 1
     else:
@@ -482,24 +490,29 @@ proc pressure*(self: ZenContext): range[0.0..1.0] =
 proc chan_full*(self: Chan): bool =
   self.remaining < 0.1
 
-proc publish_destroy[T, O](self: Zen[T, O]) =
+proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext) =
   log_defaults
   debug "destroy"
   for sub in self.ctx.subscribers:
-    when defined(zen_trace):
-      self.ctx.send(sub, Message(
-        kind: Destroy, object_id: self.id, trace: get_stack_trace()))
-    else:
-      self.ctx.send(sub, Message(kind: Destroy, object_id: self.id))
+    if sub.ctx_name != op_ctx.source:
+      when defined(zen_trace):
+        self.ctx.send(sub, Message(
+          kind: Destroy, object_id: self.id, trace: get_stack_trace()))
+      else:
+        self.ctx.send(sub, Message(kind: Destroy, object_id: self.id))
   if not self.ctx.reactor.is_nil:
     self.ctx.reactor.tick
     self.ctx.remote_messages &= self.ctx.reactor.messages
 
-proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
+proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]],
+    op_ctx: OperationContext) =
+
   log_defaults
   debug "changes"
   let id = self.id
   for sub in self.ctx.subscribers:
+    if sub.ctx_name == op_ctx.source:
+      continue
     for change in changes:
       if [Added, Removed, Created, Touched].any_it(it in change.changes):
         if Removed in change.changes and Modified in change.changes:
@@ -535,8 +548,7 @@ proc process_changes[T](self: Zen[T, T], initial: sink T, op_ctx: OperationConte
     when T isnot Zen and T is ref:
       self.ctx.ref_count(changes)
 
-    if op_ctx.publish:
-      self.publish_changes(changes)
+    self.publish_changes(changes, op_ctx)
     self.trigger_callbacks(changes)
 
   elif touch:
@@ -544,8 +556,7 @@ proc process_changes[T](self: Zen[T, T], initial: sink T, op_ctx: OperationConte
     when T isnot Zen and T is ref:
       self.ctx.ref_count(changes)
 
-    if op_ctx.publish:
-      self.publish_changes(changes)
+    self.publish_changes(changes, op_ctx)
     self.trigger_callbacks(changes)
 
 proc process_changes[T: seq | set, O](self: Zen[T, O],
@@ -568,8 +579,7 @@ proc process_changes[T: seq | set, O](self: Zen[T, O],
   when O isnot Zen and O is ref:
     self.ctx.ref_count(changes)
 
-  if op_ctx.publish:
-    self.publish_changes(changes)
+  self.publish_changes(changes, op_ctx)
   self.trigger_callbacks(changes)
 
 proc process_changes[K, V](self: Zen[Table[K, V],
@@ -595,10 +605,8 @@ proc process_changes[K, V](self: Zen[Table[K, V],
   when V isnot Zen and V is ref:
     self.ctx.ref_count(changes)
 
-  if op_ctx.publish:
-    self.publish_changes(changes)
+  self.publish_changes(changes, op_ctx)
   self.trigger_callbacks(changes)
-
 
 template mutate_and_touch(touch, op_ctx, body: untyped) =
   when self.tracked is Zen:
@@ -638,12 +646,12 @@ proc change_and_touch[T, O](self: Zen[T, O], items: T, add: bool,
 
 proc clear*[T, O](self: Zen[T, O]) =
   assert self.valid
-  mutate(OperationContext(publish: true)):
+  mutate(OperationContext(source: self.ctx.name)):
     self.tracked = T.default
 
-proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext(publish: true)) =
+proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
   assert self.valid
-
+  self.ctx.setup_op_ctx
   if self.tracked != value:
     mutate(op_ctx):
       self.tracked = value
@@ -681,15 +689,13 @@ proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     when V isnot Zen and V is ref:
       self.ctx.ref_count changes
 
-    if op_ctx.publish:
-      self.publish_changes changes
+    self.publish_changes changes, op_ctx
     self.trigger_callbacks changes
 
   elif key in self.tracked and touch:
     let changes = @[Change.init(Pair[K, V] (key, value), {Touched})]
 
-    if op_ctx.publish:
-      self.publish_changes changes
+    self.publish_changes changes, op_ctx
     self.trigger_callbacks changes
 
   elif key notin self.tracked:
@@ -701,19 +707,25 @@ proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     when V isnot Zen and V is ref:
       self.ctx.ref_count changes
 
-    if op_ctx.publish:
-      self.publish_changes changes
+    self.publish_changes changes, op_ctx
     self.trigger_callbacks changes
 
-proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V, op_ctx = OperationContext(publish: true)) =
-  self.put(key, value, touch = false, op_ctx = op_ctx)
+proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V,
+    op_ctx = OperationContext()) =
 
-proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T, op_ctx = OperationContext(publish: true)) =
+  self.ctx.setup_op_ctx
+  self.put(key, value, touch = false, op_ctx)
+
+proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T,
+    op_ctx = OperationContext()) =
+
+  self.ctx.setup_op_ctx
   assert self.valid
   mutate(op_ctx):
     self.tracked[index] = value
 
-proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: true)) =
+proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
+  self.ctx.setup_op_ctx
   when O is Zen:
     assert self.valid(value)
   else:
@@ -724,8 +736,7 @@ proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: tr
   when O isnot Zen and O is ref:
     self.ctx.ref_count(added)
 
-  if op_ctx.publish:
-    self.publish_changes(added)
+  self.publish_changes(added, op_ctx)
   self.trigger_callbacks(added)
 
 template remove(self, key, item_exp, fun, op_ctx) =
@@ -736,21 +747,25 @@ template remove(self, key, item_exp, fun, op_ctx) =
   when obj isnot Zen and obj is ref:
     self.ctx.ref_count(added)
 
-  if op_ctx.publish:
-    self.publish_changes(removed)
+  self.publish_changes(removed, op_ctx)
   self.trigger_callbacks(removed)
 
-proc del*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: true)) =
+proc del*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
+  self.ctx.setup_op_ctx
   assert self.valid
   if value in self.tracked:
     remove(self, value, value, del, op_ctx)
 
-proc del*[K, V](self: ZenTable[K, V], key: K, op_ctx = OperationContext(publish: true)) =
+proc del*[K, V](self: ZenTable[K, V], key: K, op_ctx = OperationContext()) =
+  self.ctx.setup_op_ctx
   assert self.valid
   if key in self.tracked:
     remove(self, key, (key: key, value: self.tracked[key]), del, op_ctx)
 
-proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal, op_ctx = OperationContext(publish: true)) =
+proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal,
+    op_ctx = OperationContext()) =
+
+  self.ctx.setup_op_ctx
   assert self.valid
   if index < self.tracked.len:
     remove(self, index, self.tracked[index], del, op_ctx)
@@ -758,40 +773,46 @@ proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal, op_ctx = OperationCont
 proc delete*[T, O](self: Zen[T, O], value: O) =
   assert self.valid
   if value in self.tracked:
-    remove(self, value, value, delete, op_ctx = OperationContext(publish: true))
+    remove(self, value, value, delete,
+        op_ctx = OperationContext(source: self.ctx.name))
 
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
   assert self.valid
   if key in self.tracked:
     remove(self, key, (key: key, value: self.tracked[key]), delete,
-        op_ctx = OperationContext(publish: true))
+        op_ctx = OperationContext())
 
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
   assert self.valid
   if index < self.tracked.len:
-    remove(self, index, self.tracked[index], delete, op_ctx = OperationContext(publish: true))
+    remove(self, index, self.tracked[index], delete,
+        op_ctx = OperationContext())
 
-proc touch[K, V](self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext) =
+proc touch[K, V](self: ZenTable[K, V], pair: Pair[K, V],
+    op_ctx: OperationContext) =
+
   assert self.valid
   self.put(pair.key, pair.value, touch = true, op_ctx = op_ctx)
 
-proc touch*[T, O](self: ZenTable[T, O], key: T, value: O, op_ctx = OperationContext(publish: true)) =
+proc touch*[T, O](self: ZenTable[T, O], key: T, value: O,
+    op_ctx = OperationContext()) =
+
   assert self.valid
   self.put(key, value, touch = true, op_ctx = op_ctx)
 
-proc touch*[T: set, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: true)) =
+proc touch*[T: set, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   assert self.valid
   self.change_and_touch({value}, true, op_ctx = op_ctx)
 
-proc touch*[T: seq, O](self: Zen[T, O], value: O, op_ctx = OperationContext(publish: true)) =
+proc touch*[T: seq, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   assert self.valid
   self.change_and_touch(@[value], true, op_ctx = op_ctx)
 
-proc touch*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext(publish: true)) =
+proc touch*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
   assert self.valid
   self.change_and_touch(value, true, op_ctx = op_ctx)
 
-proc touch*[T](self: ZenValue[T], value: T, op_ctx = OperationContext(publish: true)) =
+proc touch*[T](self: ZenValue[T], value: T, op_ctx = OperationContext()) =
   assert self.valid
   mutate_and_touch(touch = true, op_ctx):
     self.tracked = value
@@ -802,11 +823,11 @@ proc len*(self: Zen): int =
 
 proc `+=`*[T, O](self: Zen[T, O], value: T) =
   assert self.valid
-  self.change(value, true, op_ctx = OperationContext(publish: true))
+  self.change(value, true, op_ctx = OperationContext())
 
 proc `+=`*[O](self: ZenSet[O], value: O) =
   assert self.valid
-  self.change({value}, true, op_ctx = OperationContext(publish: true))
+  self.change({value}, true, op_ctx = OperationContext())
 
 proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
   assert self.valid
@@ -814,15 +835,15 @@ proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
 
 proc `-=`*[T, O](self: Zen[T, O], value: T) =
   assert self.valid
-  self.change(value, false, op_ctx = OperationContext(publish: true))
+  self.change(value, false, op_ctx = OperationContext())
 
 proc `-=`*[T: set, O](self: Zen[T, O], value: O) =
   assert self.valid
-  self.change({value}, false, op_ctx = OperationContext(publish: true))
+  self.change({value}, false, op_ctx = OperationContext())
 
 proc `-=`*[T: seq, O](self: Zen[T, O], value: O) =
   assert self.valid
-  self.change(@[value], false, op_ctx = OperationContext(publish: true))
+  self.change(@[value], false, op_ctx = OperationContext())
 
 proc `&=`*[T, O](self: Zen[T, O], value: O) =
   assert self.valid
@@ -869,7 +890,9 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
   ctx.objects[self.id] = self
 
-  self.publish_create = proc(sub: Subscription, broadcast: bool) {.gcsafe.} =
+  self.publish_create = proc(sub: Subscription, broadcast: bool,
+      op_ctx = OperationContext()) {.gcsafe.} =
+
     debug "create", sub
     let bin = self.tracked.to_flatty
     let value: CreatePayload = (bin: bin, track_children: self.track_children,
@@ -893,7 +916,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
             var value = bin.from_flatty(`typ`, ctx)
             if id notin ctx:
               discard Zen.init(value, ctx = ctx, id = id,
-                  track_children = track_children, op_ctx = op_ctx)
+                  track_children = track_children, op_ctx)
 
       var msg = Message(kind: Create, obj: value.to_flatty,
           type_id: zen_type_id, object_id: id)
@@ -907,7 +930,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       ctx.send_msg(sub)
     if broadcast:
       for sub in ctx.subscribers:
-        ctx.send_msg(sub)
+        if sub.ctx_name != op_ctx.source:
+          ctx.send_msg(sub)
     if not ctx.reactor.is_nil:
       ctx.reactor.tick
       ctx.remote_messages &= ctx.reactor.messages
@@ -1004,24 +1028,28 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   assert self.ctx == nil
   self.ctx = ctx
 
-  if op_ctx.publish:
-    self.publish_create(broadcast = true)
+  self.publish_create(broadcast = true, op_ctx = op_ctx)
   self
 
-proc init*(T: type Zen, track_children = true, ctx = ctx(), id = ""): T =
-  T(track_children: track_children).defaults(ctx, id, op_ctx = OperationContext(publish: true))
+proc init*(T: type Zen, track_children = true, ctx = ctx(), id = "",
+    op_ctx = OperationContext()): T =
+
+  ctx.setup_op_ctx
+  T(track_children: track_children).defaults(ctx, id, op_ctx)
 
 proc init*(_: type Zen,
-  T: type[ref | object | SomeOrdinal | SomeNumber | string],
-  track_children = true, ctx = ctx(), id = ""): Zen[T, T] =
+    T: type[ref | object | SomeOrdinal | SomeNumber | string],
+    track_children = true, ctx = ctx(), id = "",
+    op_ctx = OperationContext()): Zen[T, T] =
 
-  result = Zen[T, T](track_children: track_children).defaults(ctx, id,
-      op_ctx = OperationContext(publish: true))
+  ctx.setup_op_ctx
+  result = Zen[T, T](track_children: track_children).defaults(ctx, id, op_ctx)
 
 proc init*[T: ref | object | SomeOrdinal | SomeNumber | string | ptr](
-    _: type Zen, tracked: T, track_children = true, ctx = ctx(), id = "",
-    op_ctx = OperationContext(publish: true)): Zen[T, T] =
+    _: type Zen, tracked: T, track_children = true, ctx = ctx(),
+    id = "", op_ctx = OperationContext()): Zen[T, T] =
 
+  ctx.setup_op_ctx
   var self = Zen[T, T](track_children: track_children).defaults(
       ctx, id, op_ctx)
 
@@ -1029,9 +1057,10 @@ proc init*[T: ref | object | SomeOrdinal | SomeNumber | string | ptr](
     self.tracked = tracked
   result = self
 
-proc init*[O](_: type Zen, tracked: set[O], track_children = true,
-    ctx = ctx(), id = "", op_ctx = OperationContext(publish: true)): Zen[set[O], O] =
+proc init*[O](_: type Zen, tracked: set[O], track_children = true, ctx = ctx(),
+    id = "", op_ctx = OperationContext()): Zen[set[O], O] =
 
+  ctx.setup_op_ctx
   var self = Zen[set[O], O](track_children: track_children).defaults(
       ctx, id, op_ctx)
 
@@ -1040,8 +1069,9 @@ proc init*[O](_: type Zen, tracked: set[O], track_children = true,
   result = self
 
 proc init*[K, V](_: type Zen, tracked: Table[K, V], track_children = true,
-    ctx = ctx(), id = "", op_ctx = OperationContext(publish: true)): ZenTable[K, V] =
+    ctx = ctx(), id = "", op_ctx = OperationContext()): ZenTable[K, V] =
 
+  ctx.setup_op_ctx
   var self = ZenTable[K, V](track_children: track_children).defaults(
       ctx, id, op_ctx)
 
@@ -1050,8 +1080,9 @@ proc init*[K, V](_: type Zen, tracked: Table[K, V], track_children = true,
   result = self
 
 proc init*[O](_: type Zen, tracked: open_array[O], track_children = true,
-    ctx = ctx(), id = "", op_ctx = OperationContext(publish: true)): Zen[seq[O], O] =
+    ctx = ctx(), id = "", op_ctx = OperationContext()): Zen[seq[O], O] =
 
+  ctx.setup_op_ctx
   var self = Zen[seq[O], O](track_children: track_children).defaults(
       ctx, id, op_ctx)
 
@@ -1060,36 +1091,46 @@ proc init*[O](_: type Zen, tracked: open_array[O], track_children = true,
   result = self
 
 proc init*[O](_: type Zen, T: type seq[O], track_children = true, ctx = ctx(),
-  id = ""): Zen[seq[O], O] =
+    id = "", op_ctx = OperationContext()): Zen[seq[O], O] =
 
+  ctx.setup_op_ctx
   result = Zen[seq[O], O](track_children: track_children).defaults(
-      ctx, id, op_ctx = OperationContext(publish: true))
+      ctx, id, op_ctx)
 
 proc init*[O](_: type Zen, T: type set[O], track_children = true, ctx = ctx(),
-  id = ""): Zen[set[O], O] =
+    id = "", op_ctx = OperationContext()): Zen[set[O], O] =
 
+  ctx.setup_op_ctx
   result = Zen[set[O], O](track_children: track_children).defaults(
-      ctx, id, op_ctx = OperationContext(publish: true))
+      ctx, id, op_ctx)
 
 proc init*[K, V](_: type Zen, T: type Table[K, V], track_children = true,
-  ctx = ctx(), id = ""): Zen[Table[K, V], Pair[K, V]] =
+    ctx = ctx(), id = "", op_ctx = OperationContext()):
+    Zen[Table[K, V], Pair[K, V]] =
 
+  ctx.setup_op_ctx
   result = Zen[Table[K, V], Pair[K, V]](track_children: track_children)
-      .defaults(ctx, id, op_ctx = OperationContext(publish: true))
+      .defaults(ctx, id, op_ctx)
 
 proc init*(_: type Zen, K, V: type, track_children = true, ctx = ctx(),
-  id = ""): ZenTable[K, V] =
+    id = "", op_ctx = OperationContext()): ZenTable[K, V] =
 
+  ctx.setup_op_ctx
   result = ZenTable[K, V](track_children: track_children).defaults(
-      ctx, id, op_ctx = OperationContext(publish: true))
+      ctx, id, op_ctx)
 
 proc init*[K, V](t: type Zen, tracked: open_array[(K, V)],
-  track_children = true, ctx = ctx(), id = ""): ZenTable[K, V] =
-  result = Zen.init(tracked.to_table, track_children = track_children,
-    ctx = ctx, id = id)
+    track_children = true, ctx = ctx(), id = "",
+    op_ctx = OperationContext()): ZenTable[K, V] =
 
-proc init*[T, O](self: var Zen[T, O], ctx = ctx(), id = "") =
-  self = Zen[T, O].init(ctx = ctx, id = id)
+  ctx.setup_op_ctx
+  result = Zen.init(tracked.to_table, track_children = track_children,
+    ctx = ctx, id = id, op_ctx = op_ctx)
+
+proc init*[T, O](self: var Zen[T, O], ctx = ctx(), id = "",
+    op_ctx = OperationContext()) =
+
+  self = Zen[T, O].init(ctx = ctx, id = id, op_ctx = op_ctx)
 
 proc `[]`*[T, O](self: ZenContext, src: Zen[T, O]): Zen[T, O] =
   result = Zen[T, O](self.objects[src.id])
@@ -1179,7 +1220,7 @@ proc destroy*[T, O](self: Zen[T, O]) =
   self.untrack_all
   self.destroyed = true
   self.ctx.objects.del self.id
-  self.publish_destroy
+  self.publish_destroy OperationContext(source: self.ctx.name)
 
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   assert self.valid

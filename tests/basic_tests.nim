@@ -489,7 +489,6 @@ proc main =
       var ctx3 = ZenContext.init(name = "ctx3")
       Zen.thread_ctx = ctx3
       ctx3.subscribe(ctx2, bidirectional = false)
-      ctx3.subscribe(ctx1, bidirectional = false)
       Zen.thread_ctx = ctx1
       check ctx3.len == ctx1.len
       src.values += Zen.init("", ctx = ctx1)

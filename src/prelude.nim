@@ -45,7 +45,6 @@ type
     type_name*: string
 
   OperationContext = object
-    publish: bool
     source: string
 
   Message = object
@@ -55,10 +54,10 @@ type
     type_id: int
     ref_id: int
     obj: string
+    source: string
     when defined(zen_trace):
       trace: string
       id: int
-      src: string
 
   CreateInitializer = proc(bin: string, ctx: ZenContext, id: string,
       track_children: bool, op_ctx: OperationContext)
@@ -123,8 +122,8 @@ type
     build_message: proc(self: ref ZenBase, change: BaseChange, id: string,
         trace: string): Message {.gcsafe.}
 
-    publish_create: proc(sub = Subscription.default,
-        broadcast = false) {.gcsafe.}
+    publish_create: proc(sub = Subscription.default, broadcast = false,
+        op_ctx = OperationContext()) {.gcsafe.}
 
     change_receiver: proc(self: ref ZenBase, msg: Message,
         op_ctx: OperationContext) {.gcsafe.}
