@@ -32,7 +32,7 @@ proc register_type*(_: type Zen, typ: type) =
         dest = nil
       elif (src is proc):
         dest = nil
-      elif src.has_custom_pragma(local):
+      elif src.has_custom_pragma(zen_ignore):
         dest = dest.type.default
     {.cast(no_side_effect).}:
       result = clone.to_flatty

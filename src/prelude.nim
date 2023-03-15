@@ -154,7 +154,7 @@ var flatty_ctx {.threadvar.}: ZenContext
 
 const port = 9632
 
-template local* {.pragma.}
+template zen_ignore* {.pragma.}
 
 template with_lock(body: untyped) =
   {.cast(gcsafe).}:
