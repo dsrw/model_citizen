@@ -47,7 +47,7 @@ proc run* =
       ctx3 = ZenContext.init(name = "ctx3",
           min_recv_duration = recv_duration, blocking_recv = true)
       ctx4 = ZenContext.init(name = "ctx4")
-    # Version 1
+
     var
       a = Zen.init(@["a1", "a2"], id = "test2", ctx = ctx1)
       b = Zen.init(@["b1", "b2"], id = "test2", ctx = ctx2)

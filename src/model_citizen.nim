@@ -164,7 +164,8 @@ proc init(_: type Change,
 
 proc recv*(self: ZenContext,
     messages = int.high, max_duration = self.max_recv_duration, min_duration =
-    self.min_recv_duration, blocking = self.blocking_recv) {.gcsafe.}
+    self.min_recv_duration, blocking = self.blocking_recv,
+    poll = true) {.gcsafe.}
 
 proc valid*[T: ref ZenBase](self: T): bool =
   not self.is_nil and not self.destroyed
@@ -369,7 +370,7 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
     let id = change.item.ref_id
     if Added in change.changes:
       if id notin self.ref_pool:
-        debug "saving", id
+        debug "saving ref", id
         self.ref_pool[id] = CountedRef()
       inc self.ref_pool[id].count
       self.ref_pool[id].obj = change.item
@@ -380,6 +381,7 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
         self.freeable_refs[id] = get_mono_time() + init_duration(seconds = 10)
 
 proc process_message(self: ZenContext, msg: Message) =
+  log_defaults "model_citizen networking"
   assert self.name notin msg.source
   when defined(zen_trace):
     let src = self.name & "-" & msg.source
@@ -415,13 +417,14 @@ proc process_message(self: ZenContext, msg: Message) =
 proc send(self: ZenContext, sub: Subscription, msg: sink Message,
     op_ctx = OperationContext(), flags = default_flags) =
 
+  log_defaults("model_citizen networking")
   when defined(zen_trace):
     if sub.ctx_name notin self.last_msg_id:
       self.last_msg_id[sub.ctx_name] = 1
     else:
       self.last_msg_id[sub.ctx_name] += 1
     msg.id = self.last_msg_id[sub.ctx_name]
-  debug "sending", msg
+  debug "sending message", msg
 
   msg.source = op_ctx.source
   if msg.source == "":
@@ -439,18 +442,34 @@ proc add_subscriber(self: ZenContext, sub: Subscription, push_all: bool,
   self.subscribers.add sub
   for id in self.objects.keys.to_seq.reversed:
     if id notin remote_objects or push_all:
+      debug "sending object on subscribe", from_ctx = self.name,
+          to_ctx = sub.ctx_name, zen_id = id
+
       let zen = self.objects[id]
       zen.publish_create sub
+    else:
+      debug "not sending object because remote ctx already has it",
+          from_ctx = self.name, to_ctx = sub.ctx_name, zen_id = id
+
+proc process_value_initializers(self: ZenContext) =
+  debug "running deferred initializers", ctx = self.name
+  for initializer in self.value_initializers:
+    initializer()
+  self.value_initializers = @[]
 
 proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
   debug "local subscribe", ctx = self.name
   var remote_objects: HashSet[string]
   for id in self.objects.keys:
     remote_objects.incl id
+  self.subscribing = true
   ctx.add_subscriber(Subscription(kind: Local, chan: self.chan,
       ctx_name: self.name), push_all = bidirectional, remote_objects)
 
   self.recv(blocking = false, min_duration = Duration.default)
+  self.subscribing = false
+  self.process_value_initializers
+
   if bidirectional:
     ctx.subscribe(self, bidirectional = false)
 
@@ -462,6 +481,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
   debug "remote subscribe", address
   if self.reactor.is_nil:
     self.reactor = new_reactor()
+  self.subscribing = true
   let connection = self.reactor.connect(address, port)
   self.send(Subscription(kind: Remote, ctx_name: "temp",
       connection: connection), Message(kind: Subscribe))
@@ -486,6 +506,10 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
     if callback != nil:
       callback()
 
+  self.recv(poll = false)
+  self.subscribing = false
+  self.process_value_initializers
+
   if bidirectional:
     let sub = Subscription(kind: Remote, connection: connection,
         ctx_name: ctx_name)
@@ -502,7 +526,8 @@ proc close*(self: ZenContext) =
 
 proc recv*(self: ZenContext,
     messages = int.high, max_duration = self.max_recv_duration, min_duration =
-    self.min_recv_duration, blocking = self.blocking_recv) {.gcsafe.} =
+    self.min_recv_duration, blocking = self.blocking_recv,
+    poll = true) {.gcsafe.} =
 
   var msg: Message
   var count = 0
@@ -517,16 +542,20 @@ proc recv*(self: ZenContext,
     get_mono_time() + min_duration
 
   while true:
-    while count < messages and self.chan.peek > 0 and
-        get_mono_time() < timeout:
+    if poll:
+      while count < messages and self.chan.peek > 0 and
+          get_mono_time() < timeout:
 
-      self.chan.recv(msg)
-      self.process_message(msg)
-      inc count
+        self.chan.recv(msg)
+        self.process_message(msg)
+        inc count
 
     if not self.reactor.is_nil:
-      self.reactor.tick()
-      let messages = self.remote_messages & self.reactor.messages
+      let messages = if poll:
+        self.reactor.tick()
+        self.remote_messages & self.reactor.messages
+      else:
+        self.remote_messages
       self.remote_messages = @[]
 
       for raw_msg in messages:
@@ -547,7 +576,7 @@ proc recv*(self: ZenContext,
         else:
           self.process_message(msg)
 
-    if (count > 0 or not blocking) and get_mono_time() > recv_until:
+    if poll == false or ((count > 0 or not blocking) and get_mono_time() > recv_until):
       break
 
 proc remaining*(self: Chan): range[0.0..1.0] =
@@ -565,8 +594,8 @@ proc chan_full*(self: Chan): bool =
   self.remaining < 0.1
 
 proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext) =
-  log_defaults
-  debug "destroy"
+  log_defaults("model_citizen publishing")
+  debug "publishing destroy", zen_id = self.id
   for sub in self.ctx.subscribers:
     if sub.ctx_name notin op_ctx.source:
       when defined(zen_trace):
@@ -584,7 +613,7 @@ proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext) =
 proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]],
     op_ctx: OperationContext) =
 
-  log_defaults
+  log_defaults("model_citizen publishing")
   debug "publish_changes", ctx = self.ctx, op_ctx
   let id = self.id
   for sub in self.ctx.subscribers:
@@ -982,8 +1011,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
   self.publish_create = proc(sub: Subscription, broadcast: bool,
       op_ctx = OperationContext()) {.gcsafe.} =
-
-    debug "create", sub
+    log_defaults "model_citizen publishing"
+    debug "publish_create", sub
     let bin = self.tracked.to_flatty
     let value: CreatePayload = (bin: bin, flags: self.flags,
         op_ctx: op_ctx)
@@ -1003,13 +1032,28 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
               id: string, flags: set[ZenFlags], op_ctx: OperationContext) =
 
             if bin != "":
-              var value = bin.from_flatty(`value_type`, ctx)
-              if id notin ctx:
+              debug "creating received object", id
+              if not ctx.subscribing and id notin ctx:
+                var value = bin.from_flatty(`value_type`, ctx)
                 discard Zen.init(value, ctx = ctx, id = id,
                     flags = flags, op_ctx)
-              else:
+              elif not ctx.subscribing:
+                debug "restoring received object", id
+                var value = bin.from_flatty(`value_type`, ctx)
                 let item = `zen_type`(ctx[id])
                 item.`value=`(value, op_ctx = op_ctx)
+              else:
+                if id notin ctx:
+                  discard `zen_type`.init(ctx = ctx, id = id,
+                      flags = flags, op_ctx)
+
+                let initializer = proc() =
+                  debug "deferred restore of received object value", id
+                  let value = bin.from_flatty(`value_type`, ctx)
+                  let item = `zen_type`(ctx[id])
+                  item.`value=`(value, op_ctx = op_ctx)
+                ctx.value_initializers.add(initializer)
+
             else:
               raise_assert "shouldn't be here"
 

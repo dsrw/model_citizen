@@ -12,6 +12,9 @@ const chronicles_enabled {.strdefine.} = "off"
 
 when chronicles_enabled == "on":
   import pkg / chronicles
+  export active_chronicles_stream, active_chronicles_scope,
+      log_all_dynamic_properties, flush_record, Record
+
 else:
   # Don't include chronicles unless it's specifically enabled.
   # Use of chronicles in a module requires that the calling module also import
@@ -25,8 +28,9 @@ else:
   template warn(msg: string, _: varargs[untyped]) = discard
   template error(msg: string, _: varargs[untyped]) = discard
   template fatal(msg: string, _: varargs[untyped]) = discard
+  template log_scope(body: untyped) = discard
 
-  template log_defaults = discard
+  template log_defaults(log_topics = "") = discard
 
 type
   ZID* = uint16
@@ -116,6 +120,8 @@ type
     blocking_recv: bool
     min_recv_duration: Duration
     max_recv_duration: Duration
+    subscribing*: bool
+    value_initializers*: seq[proc() {.gcsafe.}]
 
   ZenBase = object of RootObj
     id: string
@@ -172,29 +178,7 @@ const type_id = CacheCounter"type_id"
 var type_initializers: Table[int, CreateInitializer]
 var initialized = false
 
-macro system_init*(_: type Zen): untyped =
-  result = new_stmt_list()
-  for initializer in initializers:
-    result.add initializer
-
-proc init*(_: type ZenContext,
-    name = "thread-" & $get_thread_id(), chan_size = 100,
-    listen = false, blocking_recv = false, max_recv_duration =
-    Duration.default, min_recv_duration = Duration.default): ZenContext =
-
-  result = ZenContext(name: name, chan_size: chan_size,
-      blocking_recv: blocking_recv, max_recv_duration: max_recv_duration,
-      min_recv_duration: min_recv_duration)
-
-  result.chan = new_chan[Message](elements = chan_size)
-  if listen:
-    debug "listening"
-    result.reactor = new_reactor("127.0.0.1", port)
-
-proc ctx(): ZenContext =
-  if active_ctx == nil:
-    active_ctx = ZenContext.init(name = "thread-" & $get_thread_id() )
-  active_ctx
+proc ctx(): ZenContext
 
 proc thread_ctx*(_: type Zen): ZenContext = ctx()
 
@@ -209,18 +193,46 @@ proc `$`*(self: Subscription): string =
 proc `$`*(self: ZenContext): string =
   &"ZenContext {self.name}"
 
+when chronicles_enabled == "on":
+  # Must be explicitly called from generic procs due to
+  # https://github.com/status-im/nim-chronicles/issues/121
+  template log_defaults(log_topics = "model_citizen") =
+    log_scope:
+      topics = log_topics
+      thread_ctx = Zen.thread_ctx
+
+macro system_init*(_: type Zen): untyped =
+  result = new_stmt_list()
+  for initializer in initializers:
+    result.add initializer
+
+proc init*(_: type ZenContext,
+    name = "thread-" & $get_thread_id(), chan_size = 100,
+    listen = false, blocking_recv = false, max_recv_duration =
+    Duration.default, min_recv_duration = Duration.default): ZenContext =
+
+  log_scope:
+    topics = "model_citizen"
+
+  debug "ZenContext initialized", name = name
+  result = ZenContext(name: name, chan_size: chan_size,
+      blocking_recv: blocking_recv, max_recv_duration: max_recv_duration,
+      min_recv_duration: min_recv_duration)
+
+  result.chan = new_chan[Message](elements = chan_size)
+  if listen:
+    debug "listening"
+    result.reactor = new_reactor("127.0.0.1", port)
+
+proc ctx(): ZenContext =
+  if active_ctx == nil:
+    active_ctx = ZenContext.init(name = "thread-" & $get_thread_id() )
+  active_ctx
+
 func tid*(T: type): int =
   const id = type_id.value
   static:
     inc type_id
   id
-
-when chronicles_enabled == "on":
-  # Must be explicitly called from generic procs due to
-  # https://github.com/status-im/nim-chronicles/issues/121
-  template log_defaults =
-    log_scope:
-      topics = "model_citizen"
-      thread_ctx = Zen.thread_ctx
 
 log_defaults
