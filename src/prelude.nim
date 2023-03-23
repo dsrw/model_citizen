@@ -1,12 +1,12 @@
 import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
     strformat, atomics, strutils, locks, monotimes, os, importutils,
-    macrocache, algorithm, net]
+    macrocache, algorithm, net, intsets]
 import std / times except local
-import pkg / [threading / channels, print, flatty, netty, supersnappy]
+import pkg / [threading / channels, print, flatty, netty, supersnappy, nanoid]
 import typeids
 from pkg / threading / channels {.all.} import ChannelObj
 
-export macros, flatty, dup
+export macros, flatty, dup, sets
 
 const chronicles_enabled {.strdefine.} = "off"
 
@@ -61,6 +61,7 @@ type
     when defined(zen_trace):
       trace: string
       id: int
+      debug: string
 
   CreateInitializer = proc(bin: string, ctx: ZenContext, id: string,
       flags: set[ZenFlags], op_ctx: OperationContext)
@@ -80,18 +81,18 @@ type
     count: int
 
   RegisteredType = object
-    ref_id: int
+    tid: int
     stringify: proc(self: ref RootObj): string {.noSideEffect.}
-    parse: proc(self: ref RootObj, ctx: ZenContext,
-        clone_from: string): ref RootObj {.no_side_effect.}
+    parse: proc(ctx: ZenContext, clone_from: string):
+        ref RootObj {.no_side_effect.}
 
   SubscriptionKind = enum Blank, Local, Remote
 
-  Subscription = object
+  Subscription = ref object
     ctx_name: string
     case kind: SubscriptionKind
     of Local:
-      chan: Chan[string]
+      chan: Chan[Message]
     of Remote:
       connection: Connection
     else:
@@ -106,7 +107,7 @@ type
     ref_pool: Table[string, CountedRef]
     subscribers: seq[Subscription]
     name*: string
-    chan: Chan[string]
+    chan: Chan[Message]
     freeable_refs: Table[string, MonoTime]
     last_msg_id: Table[string, int]
     last_received_id: Table[string, int]
@@ -125,7 +126,7 @@ type
     build_message: proc(self: ref ZenBase, change: BaseChange, id: string,
         trace: string): Message {.gcsafe.}
 
-    publish_create: proc(sub = Subscription.default, broadcast = false,
+    publish_create: proc(sub = Subscription(), broadcast = false,
         op_ctx = OperationContext()) {.gcsafe.}
 
     change_receiver: proc(self: ref ZenBase, msg: Message,
@@ -147,6 +148,7 @@ type
   ZenValue*[T] = Zen[T, T]
 
 var local_type_registry {.threadvar.}: Table[int, RegisteredType]
+var processed_types {.threadvar.}: IntSet
 var raw_type_registry: Table[int, RegisteredType]
 var type_registry = addr raw_type_registry
 var type_registry_lock: Lock
@@ -161,7 +163,7 @@ const default_flags* = {TrackChildren, SyncLocal, SyncRemote}
 template zen_ignore* {.pragma.}
 
 template with_lock(body: untyped) =
-  {.cast(gcsafe).}:
+  {.gcsafe.}:
     locks.with_lock(type_registry_lock):
       body
 
@@ -184,7 +186,7 @@ proc init*(_: type ZenContext,
       blocking_recv: blocking_recv, max_recv_duration: max_recv_duration,
       min_recv_duration: min_recv_duration)
 
-  result.chan = new_chan[string](elements = chan_size)
+  result.chan = new_chan[Message](elements = chan_size)
   if listen:
     debug "listening"
     result.reactor = new_reactor("127.0.0.1", port)
@@ -201,6 +203,18 @@ proc `thread_ctx=`*(_: type Zen, ctx: ZenContext) =
 
 proc is_nil(self: not ref): bool = false
 
+proc `$`*(self: Subscription): string =
+  &"{self.kind} subscription for {self.ctx_name}"
+
+proc `$`*(self: ZenContext): string =
+  &"ZenContext {self.name}"
+
+func tid*(T: type): int =
+  const id = type_id.value
+  static:
+    inc type_id
+  id
+
 when chronicles_enabled == "on":
   # Must be explicitly called from generic procs due to
   # https://github.com/status-im/nim-chronicles/issues/121
@@ -209,10 +223,4 @@ when chronicles_enabled == "on":
       topics = "model_citizen"
       thread_ctx = Zen.thread_ctx
 
-  # formatters
-  format_it(ZenContext): $(it.name)
-
 log_defaults
-
-var last_id: Atomic[int]
-last_id.store(0)

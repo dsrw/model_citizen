@@ -5,7 +5,7 @@ import model_citizen
 from std / times import init_duration
 from model_citizen {.all.} import ref_id, CountedRef
 
-proc main =
+proc run* =
   var change_count = 0
   proc count_changes(obj: auto): ZID {.discardable.} =
     obj.changes:
@@ -522,20 +522,17 @@ proc main =
         id: int
 
     Zen.register_type(Unit)
-
     local_and_remote:
       var u1 = Unit(id: 1)
       var u2 = Unit(id: 2)
       u1.init_zen_fields
       u2.init_zen_fields
-
       ctx2.recv
 
       var ru1 = Unit.init_from(u1, ctx = ctx2)
 
       u1.units += u2
       ctx2.recv
-
       check ru1.units[0].code.ctx == ctx2
 
   test "zentable of tables":
@@ -716,5 +713,6 @@ proc main =
       check src_change_id == 4
       check dest_change_id == 4
 
-Zen.system_init
-main()
+when is_main_module:
+  Zen.system_init
+  run()

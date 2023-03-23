@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.10.1"
+version       = "0.10.2"
 author        = "Scott Wadden"
 description   = "Nothing for now"
 license       = "MIT"
@@ -15,5 +15,6 @@ requires(
   "chronicles",
   "flatty",
   "netty",
-  "supersnappy"
+  "supersnappy",
+  "https://github.com/dsrw/nanoid.nim 0.2.1",
 )

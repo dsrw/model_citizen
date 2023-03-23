@@ -29,7 +29,7 @@ proc start_worker(ctx: ZenContext) {.thread.} =
   while working:
     ctx.recv
 
-proc thread_tests =
+proc run* =
   test "basic":
     Zen.thread_ctx.clear
     Zen.thread_ctx = ZenContext.init(name = "main")
@@ -63,7 +63,10 @@ proc thread_tests =
 
     while working:
       Zen.thread_ctx.recv
+    ctx.close
 
     worker_thread.join_thread
 
-thread_tests()
+when is_main_module:
+  Zen.system_init
+  run()
