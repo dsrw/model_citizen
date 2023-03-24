@@ -1,10 +1,10 @@
 include model_citizen/prelude
 
 template setup_op_ctx(self: ZenContext) =
-  let op_ctx = if op_ctx == OperationContext.default:
-    OperationContext(source: self.name)
-  else:
+  let op_ctx = if ?op_ctx:
     op_ctx
+  else:
+    OperationContext(source: self.name)
 
 proc lookup_type(key: int, registered_type: var RegisteredType): bool =
   if key in local_type_registry:
@@ -39,13 +39,13 @@ type ZenFlattyInfo = tuple[object_id: string, tid: int]
 
 proc to_flatty*[T: ref RootObj](s: var string, x: T) =
   when x is ref ZenBase:
-    s.to_flatty x.is_nil
-    if not x.is_nil:
+    s.to_flatty not ?x
+    if ?x:
       s.to_flatty ZenFlattyInfo((x.id, x.type.tid))
   else:
     var registered_type: RegisteredType
     when compiles(x.id):
-      if not x.is_nil and x.lookup_type(registered_type):
+      if ?x and x.lookup_type(registered_type):
         s.to_flatty true
         let obj: FlatRef = (tid: registered_type.tid, ref_id: x.ref_id,
             item: registered_type.stringify(x))
@@ -53,8 +53,8 @@ proc to_flatty*[T: ref RootObj](s: var string, x: T) =
         flatty.to_flatty(s, obj)
         return
     s.to_flatty false
-    s.to_flatty x.is_nil
-    if not x.is_nil:
+    s.to_flatty not ?x
+    if ?x:
       flatty.to_flatty(s, x)
 
 proc from_flatty*[T: ref RootObj](s: string, i: var int, value: var T) =
@@ -120,7 +120,7 @@ proc register_type*(_: type Zen, typ: type) =
     clone[] = self[]
     for src, dest in fields(self[], clone[]):
       when src is Zen:
-        if not src.is_nil:
+        if ?src:
           var field = type(src)()
           field.id = src.id
           dest = field
@@ -139,7 +139,7 @@ proc register_type*(_: type Zen, typ: type) =
       self[] = from_flatty(clone_from, self[].type, ctx)
     for field in self[].fields:
       when field is Zen:
-        if not field.is_nil and field.id in ctx:
+        if ?field and field.id in ctx:
           field = type(field)(ctx[field.id])
     result = self
 
@@ -168,7 +168,7 @@ proc recv*(self: ZenContext,
     poll = true) {.gcsafe.}
 
 proc valid*[T: ref ZenBase](self: T): bool =
-  not self.is_nil and not self.destroyed
+  ?self and not self.destroyed
 
 proc valid*[T: ref ZenBase, V: ref ZenBase](self: T, value: V): bool =
   self.valid and value.valid and self.ctx == value.ctx
@@ -264,7 +264,7 @@ proc link_child[K, V](self: ZenTable[K, V],
     debug "linking zen", child = ($child.type, $child.id),
         self = ($self.type, $self.id)
 
-  if not child.value.is_nil:
+  if ?child.value:
     self.link(child, child.value)
 
 proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
@@ -287,7 +287,7 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
         self = ($self.type, $self.id), zid = child.link_zid,
         child_addr = cast[int](unsafe_addr child[]).to_hex
 
-  if not child.is_nil:
+  if ?child:
     link(child)
 
 proc unlink(self: Zen) =
@@ -316,16 +316,16 @@ proc link_or_unlink[T, O](self: Zen[T, O], change: Change[O], link: bool) =
       elif change.value is object or change.value is ref:
         for name, val in change.value.deref.field_pairs:
           when val is Zen:
-            if not val.is_nil:
+            if ?val:
               self.link_child(val, change.item, name)
     else:
       when change.value is Zen:
-        if not change.value.is_nil:
+        if ?change.value:
           change.value.unlink
       elif change.value is object or change.value is ref:
         for field in change.value.deref.fields:
           when field is Zen:
-            if not field.is_nil:
+            if ?field:
               field.unlink
 
 proc link_or_unlink[T, O](self: Zen[T, O],
@@ -336,7 +336,7 @@ proc link_or_unlink[T, O](self: Zen[T, O],
       self.link_or_unlink(change, link)
 
 proc find_ref[T](self: ZenContext, value: var T): bool =
-  if not value.is_nil:
+  if ?value:
     let id = value.ref_id
     if id in self.ref_pool:
       value = T(self.ref_pool[id].obj)
@@ -365,7 +365,7 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
   log_defaults
 
   for change in changes:
-    if change.item.is_nil:
+    if not ?change.item:
       continue
     let id = change.item.ref_id
     if Added in change.changes:
@@ -484,7 +484,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
     # code
 
   debug "remote subscribe", address
-  if self.reactor.is_nil:
+  if not ?self.reactor:
     self.reactor = new_reactor()
   self.subscribing = true
   let connection = self.reactor.connect(address, port)
@@ -524,7 +524,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
   self.recv(blocking = false)
 
 proc close*(self: ZenContext) =
-  if not self.reactor.is_nil:
+  if ?self.reactor:
     private_access Reactor
     self.reactor.socket.close()
   self.reactor = nil
@@ -537,11 +537,11 @@ proc recv*(self: ZenContext,
   var msg: Message
   var count = 0
   self.free_refs
-  let timeout = if max_duration == Duration.default:
+  let timeout = if not ?max_duration:
     MonoTime.high
   else:
     get_mono_time() + max_duration
-  let recv_until = if min_duration == Duration.default:
+  let recv_until = if not ?min_duration:
     MonoTime.low
   else:
     get_mono_time() + min_duration
@@ -555,7 +555,7 @@ proc recv*(self: ZenContext,
         self.process_message(msg)
         inc count
 
-    if not self.reactor.is_nil:
+    if ?self.reactor:
       let messages = if poll:
         self.reactor.tick()
         self.remote_messages & self.reactor.messages
@@ -611,7 +611,7 @@ proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext) =
         self.ctx.send(sub, Message(kind: Destroy, object_id: self.id),
             op_ctx, self.flags)
 
-  if not self.ctx.reactor.is_nil:
+  if ?self.ctx.reactor:
     self.ctx.reactor.tick
     self.ctx.remote_messages &= self.ctx.reactor.messages
 
@@ -640,7 +640,7 @@ proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]],
           ""
         var msg = obj.build_message(obj, change, id, trace)
         self.ctx.send(sub, msg, op_ctx, self.flags)
-    if not self.ctx.reactor.is_nil:
+    if ?self.ctx.reactor:
       self.ctx.reactor.tick
       self.ctx.remote_messages &= self.ctx.reactor.messages
 
@@ -795,7 +795,7 @@ proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     if touch: flags.incl Touched
     let added = Change.init(Pair[K, V] (key, value), flags)
     when value is Zen:
-      if not removed.item.value.is_nil:
+      if ?removed.item.value:
         self.link_or_unlink(removed, false)
       self.link_or_unlink(added, true)
     self.tracked[key] = value
@@ -1005,10 +1005,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   log_defaults
 
   self.id = if id == "":
-    $self.type & "-" & generate(
-      alphabet = "abcdefghijklmnopqrstuvwxyz0123456789",
-      size = 13
-    )
+    $self.type & "-" & generate_id()
   else:
     id
 
@@ -1074,7 +1071,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       for sub in ctx.subscribers:
         if sub.ctx_name notin op_ctx.source:
           ctx.send_msg(sub)
-    if not ctx.reactor.is_nil:
+    if ?ctx.reactor:
       ctx.reactor.tick
       ctx.remote_messages &= ctx.reactor.messages
 
@@ -1095,7 +1092,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       var item = ""
       block registered:
         when change.item is ref RootObj:
-          if not change.item.is_nil:
+          if ?change.item:
             var registered_type: RegisteredType
             if change.item.lookup_type(registered_type):
               msg.ref_id = registered_type.tid

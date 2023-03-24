@@ -2,7 +2,7 @@ import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
     strformat, atomics, strutils, locks, monotimes, os, importutils,
     macrocache, algorithm, net, intsets]
 import std / times except local
-import pkg / [threading / channels, print, flatty, netty, supersnappy, nanoid]
+import pkg / [threading / channels, print, flatty, netty, supersnappy]
 from pkg / threading / channels {.all.} import ChannelObj
 import typeids, utils
 
@@ -181,8 +181,6 @@ proc thread_ctx*(_: type Zen): ZenContext = ctx()
 
 proc `thread_ctx=`*(_: type Zen, ctx: ZenContext) =
   active_ctx = ctx
-
-proc is_nil(self: not ref): bool = false
 
 proc `$`*(self: Subscription): string =
   &"{self.kind} subscription for {self.ctx_name}"
