@@ -62,6 +62,7 @@ type
     ref_id: int
     obj: string
     source: string
+    force: bool
     when defined(zen_trace):
       trace: string
       id: int

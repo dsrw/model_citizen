@@ -390,7 +390,7 @@ proc process_message(self: ZenContext, msg: Message) =
         raise_assert &"src={src} msg.id={msg.id} " &
             &"last={self.last_received_id[src]}. Should be msg.id - 1"
     self.last_received_id[src] = msg.id
-    debug "receiving", msg
+    debug "receiving", msg, ctx = self.name
 
   var source = msg.source & " " & self.name
 
@@ -399,7 +399,7 @@ proc process_message(self: ZenContext, msg: Message) =
     {.gcsafe.}:
       let fn = type_initializers[msg.type_id]
       let args = msg.obj.from_flatty(CreatePayload, self)
-      fn(args.bin, self, msg.object_id, args.flags,
+      fn($msg.force, self, msg.object_id, args.flags,
           OperationContext(source: source))
 
   elif msg.kind == Destroy:
@@ -415,7 +415,7 @@ proc process_message(self: ZenContext, msg: Message) =
     raise_assert "Can't recv a blank message"
 
 proc send(self: ZenContext, sub: Subscription, msg: sink Message,
-    op_ctx = OperationContext(), flags = default_flags) =
+    op_ctx = OperationContext(), flags = default_flags, force = false) =
 
   log_defaults("model_citizen networking")
   when defined(zen_trace):
@@ -430,10 +430,19 @@ proc send(self: ZenContext, sub: Subscription, msg: sink Message,
   if msg.source == "":
     msg.source = self.name
 
-  if sub.kind == Local and SyncLocal in flags:
-    sub.chan.send(msg)
-  elif sub.kind == Remote and SyncRemote in flags:
-    self.reactor.send(sub.connection, msg.to_flatty.compress)
+  if force:
+    var msg = msg
+    if sub.kind == Local:
+      msg.force = SyncLocal in flags
+      sub.chan.send(msg)
+    elif sub.kind == Remote:
+      msg.force = SyncRemote in flags
+      self.reactor.send(sub.connection, msg.to_flatty.compress)
+  else:
+    if sub.kind == Local and SyncLocal in flags:
+      sub.chan.send(msg)
+    elif sub.kind == Remote and SyncRemote in flags:
+      self.reactor.send(sub.connection, msg.to_flatty.compress)
 
 proc add_subscriber(self: ZenContext, sub: Subscription, push_all: bool,
     remote_objects: HashSet[string]) =
@@ -994,6 +1003,28 @@ proc unassign[K, V](self: ZenTable[K, V], pair: Pair[K, V],
 proc unassign[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
   discard
 
+proc init_message[T, O](self: Zen[T, O], item: O, object_id: string, type_id: int, kind: MessageKind): Message =
+  result = Message(object_id: object_id, type_id: type_id, kind: kind)
+  debug "creating message", item = $item.type
+  when item is Zen:
+    result.change_object_id = item.id
+  elif item is Pair[any, Zen]:
+    # TODO: Properly sync ref keys
+    result.obj = item.key.to_flatty
+    result.change_object_id = item.value.id
+  else:
+    when item is ref RootObj:
+      if not item.is_nil:
+        var registered_type: RegisteredType
+        if item.lookup_type(registered_type):
+          result.ref_id = registered_type.tid
+          result.obj = registered_type.stringify(item)
+          return
+        else:
+          debug "type not registered", type_name = item.base_type
+
+    result.obj = item.to_flatty
+
 proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     op_ctx: OperationContext): Zen[T, O] {.gcsafe.} =
 
@@ -1013,12 +1044,25 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       op_ctx = OperationContext()) {.gcsafe.} =
     log_defaults "model_citizen publishing"
     debug "publish_create", sub
-    let bin = self.tracked.to_flatty
-    let value: CreatePayload = (bin: bin, flags: self.flags,
+    #let bin = self.tracked.to_flatty
+    let payload: CreatePayload = (bin: "", flags: self.flags,
         op_ctx: op_ctx)
 
     let id = self.id
     let flags = self.flags
+
+    var assign_msgs: seq[Message]
+    when self.tracked is seq or self.tracked is set:
+      for item in self.tracked:
+        assign_msgs.add(self.init_message(item, object_id = self.id,
+            type_id = self.type.tid, kind = Assign))
+    elif self.tracked is Table:
+      for key, value in self.tracked:
+        assign_msgs.add(self.init_message((key: key, value: value),
+            object_id = self.id, type_id = self.type.tid, kind = Assign))
+    else:
+      assign_msgs.add(self.init_message(self.tracked, object_id = self.id,
+          type_id = self.type.tid, kind = Assign))
 
     template send_msg(src_ctx, sub) =
       const zen_type_id = self.type.tid
@@ -1031,40 +1075,45 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
           type_initializers[zen_type_id] = proc(bin: string, ctx: ZenContext,
               id: string, flags: set[ZenFlags], op_ctx: OperationContext) =
 
-            if bin != "":
-              debug "creating received object", id
-              if not ctx.subscribing and id notin ctx:
-                var value = bin.from_flatty(`value_type`, ctx)
-                discard Zen.init(value, ctx = ctx, id = id,
+            log_defaults "model_citizen publishing"
+            debug "creating received object", id, ctx = ctx.name
+            if not ctx.subscribing and id notin ctx:
+              #var value = `value_type`.default#bin.from_flatty(`value_type`, ctx)
+              discard `zen_type`.init(ctx = ctx, id = id,
                     flags = flags, op_ctx)
-              elif not ctx.subscribing:
-                debug "restoring received object", id
-                var value = bin.from_flatty(`value_type`, ctx)
-                let item = `zen_type`(ctx[id])
-                item.`value=`(value, op_ctx = op_ctx)
-              else:
-                if id notin ctx:
-                  discard `zen_type`.init(ctx = ctx, id = id,
-                      flags = flags, op_ctx)
-
-                let initializer = proc() =
-                  debug "deferred restore of received object value", id
-                  let value = bin.from_flatty(`value_type`, ctx)
-                  let item = `zen_type`(ctx[id])
-                  item.`value=`(value, op_ctx = op_ctx)
-                ctx.value_initializers.add(initializer)
-
+            elif not ctx.subscribing and bin == "true":
+              #debug "restoring received object", id
+              #var value = bin.from_flatty(`value_type`, ctx)
+              let item = `zen_type`(ctx[id])
+              item.`value=`(`value_type`.default, op_ctx = op_ctx)
             else:
-              raise_assert "shouldn't be here"
+              if id notin ctx:
+                discard `zen_type`.init(ctx = ctx, id = id,
+                    flags = flags, op_ctx)
+              elif bin == "true":
+                let item = `zen_type`(ctx[id])
+                item.`value=`(`value_type`.default, op_ctx = op_ctx)
 
-      var msg = Message(kind: Create, obj: value.to_flatty,
+
+              # let initializer = proc() =
+              #   discard
+              #   debug "deferred restore of received object value", id
+              #   let value = bin.from_flatty(`value_type`, ctx)
+              #   let item = `zen_type`(ctx[id])
+              #   #item.`value=`(value, op_ctx = op_ctx)
+              # ctx.value_initializers.add(initializer)
+
+
+      var msg = Message(kind: Create, obj: payload.to_flatty,
           type_id: zen_type_id, object_id: id, source: op_ctx.source)
 
       when defined(zen_trace):
         msg.trace = get_stack_trace()
-        msg.debug = "value: " & $value
+        msg.debug = "value: " & $payload
 
-      src_ctx.send(sub, msg, op_ctx)
+      src_ctx.send(sub, msg, op_ctx, flags = flags, force = true)
+      for msg in assign_msgs:
+        src_ctx.send(sub, msg, op_ctx, flags = flags)
 
     if sub.kind != Blank:
       ctx.send_msg(sub)
@@ -1079,33 +1128,11 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   self.build_message = proc(self: ref ZenBase, change: BaseChange, id,
       trace: string): Message =
 
-    var msg = Message(object_id: id, type_id: Zen[T, O].tid)
     assert Added in change.changes or Removed in change.changes or
       Touched in change.changes
+
     let change = Change[O](change)
-    when change.item is Zen:
-      msg.change_object_id = change.item.id
-    elif change.item is Pair[any, Zen]:
-      # TODO: Properly sync ref keys
-      msg.obj = change.item.key.to_flatty
-      msg.change_object_id = change.item.value.id
-    else:
-      var item = ""
-      block registered:
-        when change.item is ref RootObj:
-          if not change.item.is_nil:
-            var registered_type: RegisteredType
-            if change.item.lookup_type(registered_type):
-              msg.ref_id = registered_type.tid
-              item = registered_type.stringify(change.item)
-              break registered
-            else:
-              debug "type not registered", type_name = change.item.base_type
-
-        item = change.item.to_flatty
-      msg.obj = item
-
-    msg.kind = if Touched in change.changes:
+    let kind = if Touched in change.changes:
       Touch
     elif Added in change.changes:
       Assign
@@ -1113,7 +1140,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       Unassign
     else:
       raise_assert "Can't build message for changes " & $change.changes
-    result = msg
+
+    result = Zen[T, O](self).init_message(change.item, object_id = id, type_id = Zen[T, O].tid, kind = kind)
 
   self.change_receiver = proc(self: ref ZenBase, msg: Message,
       op_ctx: OperationContext) =
@@ -1123,6 +1151,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
     when O is Zen:
       let object_id = msg.change_object_id
+      if object_id notin self.ctx.objects:
+        error "object not in context", object_id, ctx_name = self.ctx.name
       assert object_id in self.ctx.objects
       let item = O(self.ctx.objects[object_id])
     elif O is Pair[any, Zen]:
