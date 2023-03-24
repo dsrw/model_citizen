@@ -3,8 +3,8 @@ import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
     macrocache, algorithm, net, intsets]
 import std / times except local
 import pkg / [threading / channels, print, flatty, netty, supersnappy, nanoid]
-import typeids
 from pkg / threading / channels {.all.} import ChannelObj
+import typeids, utils
 
 export macros, flatty, dup, sets
 
@@ -36,7 +36,7 @@ type
   ZID* = uint16
 
   ZenFlags* = enum
-    TrackChildren, SyncLocal, SyncRemote
+    TrackChildren, SyncLocal, SyncRemote, SyncAllNoOverwrite
 
   ChangeKind* = enum
     Created, Added, Removed, Modified, Touched, Closed
@@ -62,6 +62,7 @@ type
     ref_id: int
     obj: string
     source: string
+    flags: set[ZenFlags]
     when defined(zen_trace):
       trace: string
       id: int
@@ -69,11 +70,6 @@ type
 
   CreateInitializer = proc(bin: string, ctx: ZenContext, id: string,
       flags: set[ZenFlags], op_ctx: OperationContext)
-
-  CreatePayload = tuple
-    bin: string
-    flags: set[ZenFlags]
-    op_ctx: OperationContext
 
   Change*[O] = ref object of BaseChange
     item*: O
@@ -103,6 +99,7 @@ type
       discard
 
   ZenContext* = ref object
+    flags: set[ZenFlags]
     chan_size: int
     changed_callback_zid: ZID
     last_id: int

@@ -90,6 +90,41 @@ proc run* =
     check units2[0] of Build
     check units2[1] of Bot
 
+  test "no sync objects are created remotely, but their value doesn't sync":
+    var
+      flags = {TrackChildren}
+      ctx1 = ZenContext.init(name = "ctx1")
+      ctx2 = ZenContext.init(name = "ctx2")
+      a = ZenValue[string].init(id = "test1", ctx = ctx1, flags = flags)
+      b = ZenValue[string].init(id = "test1", ctx = ctx2, flags = flags)
+      c = ZenValue[string].init(id = "test2", ctx = ctx1, flags = flags)
+      d: ZenValue[string]
+
+    check "test1" in ctx2
+    check "test2" notin ctx2
+
+    a.value = "fizz"
+    c.value = "buzz"
+
+    ctx2.subscribe(ctx1)
+
+    check "test2" in ctx2
+
+    d = d.type()(ctx2["test2"])
+
+    check a.value == "fizz"
+    check c.value == "buzz"
+    check b.value == ""
+    check d.value == ""
+
+    b.value = "hello"
+    d.value = "world"
+
+    check a.value == "fizz"
+    check b.value == "hello"
+    check c.value == "buzz"
+    check d.value == "world"
+
 when is_main_module:
   Zen.system_init
   run()

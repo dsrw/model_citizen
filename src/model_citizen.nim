@@ -395,11 +395,9 @@ proc process_message(self: ZenContext, msg: Message) =
   var source = msg.source & " " & self.name
 
   if msg.kind == Create:
-    assert msg.obj != ""
     {.gcsafe.}:
       let fn = type_initializers[msg.type_id]
-      let args = msg.obj.from_flatty(CreatePayload, self)
-      fn(args.bin, self, msg.object_id, args.flags,
+      fn(msg.obj, self, msg.object_id, msg.flags,
           OperationContext(source: source))
 
   elif msg.kind == Destroy:
@@ -430,9 +428,16 @@ proc send(self: ZenContext, sub: Subscription, msg: sink Message,
   if msg.source == "":
     msg.source = self.name
 
+  var msg = msg
   if sub.kind == Local and SyncLocal in flags:
     sub.chan.send(msg)
+  elif sub.kind == Local and SyncAllNoOverwrite in flags:
+    msg.obj = ""
+    sub.chan.send(msg)
   elif sub.kind == Remote and SyncRemote in flags:
+    self.reactor.send(sub.connection, msg.to_flatty.compress)
+  elif sub.kind == Remote and SyncAllNoOverwrite in flags:
+    msg.obj = ""
     self.reactor.send(sub.connection, msg.to_flatty.compress)
 
 proc add_subscriber(self: ZenContext, sub: Subscription, push_all: bool,
@@ -1013,10 +1018,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       op_ctx = OperationContext()) {.gcsafe.} =
     log_defaults "model_citizen publishing"
     debug "publish_create", sub
-    let bin = self.tracked.to_flatty
-    let value: CreatePayload = (bin: bin, flags: self.flags,
-        op_ctx: op_ctx)
 
+    let bin = self.tracked.to_flatty
     let id = self.id
     let flags = self.flags
 
@@ -1054,17 +1057,16 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
                   item.`value=`(value, op_ctx = op_ctx)
                 ctx.value_initializers.add(initializer)
 
-            else:
-              raise_assert "shouldn't be here"
+            elif id notin ctx:
+              discard `zen_type`.init(ctx = ctx, id = id, flags = flags, op_ctx)
 
-      var msg = Message(kind: Create, obj: value.to_flatty,
-          type_id: zen_type_id, object_id: id, source: op_ctx.source)
+      var msg = Message(kind: Create, obj: bin, flags: flags,
+           type_id: zen_type_id, object_id: id, source: op_ctx.source)
 
       when defined(zen_trace):
         msg.trace = get_stack_trace()
-        msg.debug = "value: " & $value
 
-      src_ctx.send(sub, msg, op_ctx)
+      src_ctx.send(sub, msg, op_ctx, flags = self.flags & {SyncAllNoOverwrite})
 
     if sub.kind != Blank:
       ctx.send_msg(sub)
