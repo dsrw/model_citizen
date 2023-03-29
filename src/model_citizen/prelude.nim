@@ -119,6 +119,8 @@ type
     max_recv_duration: Duration
     subscribing*: bool
     value_initializers*: seq[proc() {.gcsafe.}]
+    dead_connections: seq[Connection]
+    unsubscribed*: seq[string]
 
   ZenBase = object of RootObj
     id: string

@@ -462,6 +462,15 @@ proc process_value_initializers(self: ZenContext) =
     initializer()
   self.value_initializers = @[]
 
+proc unsubscribe*(self: ZenContext, sub: Subscription) =
+  if sub.kind == Remote:
+    self.reactor.disconnect(sub.connection)
+  else:
+    # ???
+    discard
+  self.subscribers.delete self.subscribers.find(sub)
+  self.unsubscribed.add sub.ctx_name
+
 proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
   debug "local subscribe", ctx = self.name
   var remote_objects: HashSet[string]
@@ -497,6 +506,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
   var remote_objects: HashSet[string]
   while not finished:
     self.reactor.tick
+    self.dead_connections &= self.reactor.dead_connections
     for msg in self.reactor.messages:
       if msg.data.starts_with("ACK:"):
         if bidirectional:
@@ -535,6 +545,7 @@ proc recv*(self: ZenContext,
     poll = true) {.gcsafe.} =
 
   var msg: Message
+  self.unsubscribed = @[]
   var count = 0
   self.free_refs
   let timeout = if not ?max_duration:
@@ -558,10 +569,19 @@ proc recv*(self: ZenContext,
     if ?self.reactor:
       let messages = if poll:
         self.reactor.tick()
+        self.dead_connections &= self.reactor.dead_connections
         self.remote_messages & self.reactor.messages
       else:
         self.remote_messages
       self.remote_messages = @[]
+
+      for conn in self.dead_connections:
+        let subs = self.subscribers
+        for sub in subs:
+          if sub.kind == Remote and sub.connection == conn:
+            self.unsubscribe(sub)
+
+      self.dead_connections = @[]
 
       for raw_msg in messages:
         inc count
@@ -576,6 +596,7 @@ proc recv*(self: ZenContext,
 
           self.reactor.send(raw_msg.conn, "ACK:" & self.name & ":" & objects)
           self.reactor.tick
+          self.dead_connections &= self.reactor.dead_connections
           self.remote_messages &= self.reactor.messages
 
         else:
@@ -613,6 +634,7 @@ proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext) =
 
   if ?self.ctx.reactor:
     self.ctx.reactor.tick
+    self.ctx.dead_connections &= self.ctx.reactor.dead_connections
     self.ctx.remote_messages &= self.ctx.reactor.messages
 
 proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]],
@@ -642,6 +664,7 @@ proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]],
         self.ctx.send(sub, msg, op_ctx, self.flags)
     if ?self.ctx.reactor:
       self.ctx.reactor.tick
+      self.ctx.dead_connections &= self.ctx.reactor.dead_connections
       self.ctx.remote_messages &= self.ctx.reactor.messages
 
 proc process_changes[T](self: Zen[T, T], initial: sink T,
@@ -859,7 +882,7 @@ template remove(self, key, item_exp, fun, op_ctx) =
   let removed = @[Change.init(obj, {Removed})]
   self.link_or_unlink(removed, false)
   when obj isnot Zen and obj is ref:
-    self.ctx.ref_count(added)
+    self.ctx.ref_count(removed)
 
   self.publish_changes(removed, op_ctx)
   self.trigger_callbacks(removed)
@@ -1073,6 +1096,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
           ctx.send_msg(sub)
     if ?ctx.reactor:
       ctx.reactor.tick
+      ctx.dead_connections &= ctx.reactor.dead_connections
       ctx.remote_messages &= ctx.reactor.messages
 
   self.build_message = proc(self: ref ZenBase, change: BaseChange, id,
