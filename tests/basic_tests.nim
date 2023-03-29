@@ -49,8 +49,9 @@ proc run* =
       debug "remote run"
       const recv_duration = init_duration(milliseconds = 10)
       var
-        ctx1 {.inject.} = ZenContext.init(name = "ctx1", listen = true,
-            min_recv_duration = recv_duration, blocking_recv = true)
+        ctx1 {.inject.} = ZenContext.init(name = "ctx1",
+            listen_address = "127.0.0.1", min_recv_duration = recv_duration,
+            blocking_recv = true)
 
         ctx2 {.inject.} = ZenContext.init(name = "ctx2",
             min_recv_duration = recv_duration, blocking_recv = true)

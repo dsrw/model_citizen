@@ -488,14 +488,25 @@ proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
     ctx.subscribe(self, bidirectional = false)
 
 proc subscribe*(self: ZenContext, address: string, bidirectional = true,
-    callback: proc() = nil) = # callback param is a hack to allow testing
-    # networked contexts on the same thread. Not meant to be used in non-test
-    # code
+    callback: proc() = nil) =
+    # callback param is a hack to allow testing networked contexts on the same
+    # thread. Not meant to be used in non-test code
+
+  var address = address
+  var port = 9632
 
   debug "remote subscribe", address
   if not ?self.reactor:
     self.reactor = new_reactor()
   self.subscribing = true
+  let parts = address.split(":")
+  assert parts.len in [1, 2], "subscription address must be in the format " &
+      "`hostname` or `hostname:port`"
+
+  if parts.len == 2:
+    address = parts[0]
+    port = parts[1].parse_int
+
   let connection = self.reactor.connect(address, port)
   self.send(Subscription(kind: Remote, ctx_name: "temp",
       connection: connection), Message(kind: Subscribe))

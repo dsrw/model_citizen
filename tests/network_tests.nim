@@ -9,7 +9,7 @@ proc run* =
   test "4 way sync":
     var
       ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2", listen = true,
+      ctx2 = ZenContext.init(name = "ctx2", listen_address = "127.0.0.1",
           min_recv_duration = recv_duration, blocking_recv = true)
       ctx3 = ZenContext.init(name = "ctx3",
           min_recv_duration = recv_duration, blocking_recv = true)
@@ -42,7 +42,7 @@ proc run* =
     var
       count = 0
       ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2", listen = true,
+      ctx2 = ZenContext.init(name = "ctx2", listen_address = "127.0.0.1",
           min_recv_duration = recv_duration, blocking_recv = true)
       ctx3 = ZenContext.init(name = "ctx3",
           min_recv_duration = recv_duration, blocking_recv = true)
@@ -90,7 +90,7 @@ proc run* =
     var
       count = 0
       ctx1 = ZenContext.init(name = "ctx1")
-      ctx2 = ZenContext.init(name = "ctx2", listen = true,
+      ctx2 = ZenContext.init(name = "ctx2", listen_address = "127.0.0.1",
           min_recv_duration = recv_duration, blocking_recv = true)
       ctx3 = ZenContext.init(name = "ctx3",
           min_recv_duration = recv_duration, blocking_recv = true)

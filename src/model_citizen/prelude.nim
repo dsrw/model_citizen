@@ -162,7 +162,6 @@ type_registry_lock.init_lock
 var active_ctx {.threadvar.}: ZenContext
 var flatty_ctx {.threadvar.}: ZenContext
 
-const port = 9632
 const default_flags* = {TrackChildren, SyncLocal, SyncRemote}
 
 template zen_ignore* {.pragma.}
@@ -204,9 +203,9 @@ macro system_init*(_: type Zen): untyped =
     result.add initializer
 
 proc init*(_: type ZenContext,
-    name = "thread-" & $get_thread_id(), chan_size = 100,
-    listen = false, blocking_recv = false, max_recv_duration =
-    Duration.default, min_recv_duration = Duration.default): ZenContext =
+    name = "thread-" & $get_thread_id(), chan_size = 100, listen_address = "",
+    blocking_recv = false, max_recv_duration = Duration.default,
+    min_recv_duration = Duration.default): ZenContext =
 
   log_scope:
     topics = "model_citizen"
@@ -217,9 +216,19 @@ proc init*(_: type ZenContext,
       min_recv_duration: min_recv_duration)
 
   result.chan = new_chan[Message](elements = chan_size)
-  if listen:
+  if ?listen_address:
+    var listen_address = listen_address
+    let parts = listen_address.split(":")
+    assert parts.len in [1, 2], "listen_address must be in the format " &
+        "`hostname` or `hostname:port`"
+
+    var port = 9632
+    if parts.len == 2:
+      listen_address = parts[0]
+      port = parts[1].parse_int
+
     debug "listening"
-    result.reactor = new_reactor("127.0.0.1", port)
+    result.reactor = new_reactor(listen_address, port)
 
 proc ctx(): ZenContext =
   if active_ctx == nil:
