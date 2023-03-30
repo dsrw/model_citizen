@@ -24,3 +24,10 @@ template `?`*[T](self: HashSet[T]): bool = self.card > 0
 
 proc generate_id*(): string =
   generate(alphabet = "abcdefghijklmnopqrstuvwxyz0123456789", size = 13)
+
+# exceptions
+
+proc init*[T: Exception](kind: type[T], message: string, parent:
+    ref Exception = nil): ref Exception =
+
+  (ref kind)(msg: message, parent: parent)

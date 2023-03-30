@@ -518,6 +518,10 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
   while not finished:
     self.reactor.tick
     self.dead_connections &= self.reactor.dead_connections
+    for conn in self.dead_connections:
+      if connection == conn:
+        raise ConnectionError.init(&"Unable to connect to {address}:{port}")
+
     for msg in self.reactor.messages:
       if msg.data.starts_with("ACK:"):
         if bidirectional:

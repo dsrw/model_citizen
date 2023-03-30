@@ -35,6 +35,10 @@ else:
 type
   ZID* = uint16
 
+  ZenError* = object of CatchableError
+
+  ConnectionError* = object of ZenError
+
   ZenFlags* = enum
     TrackChildren, SyncLocal, SyncRemote, SyncAllNoOverwrite
 
