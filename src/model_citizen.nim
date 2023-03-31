@@ -488,7 +488,7 @@ proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
     ctx.subscribe(self, bidirectional = false)
 
 proc subscribe*(self: ZenContext, address: string, bidirectional = true,
-    callback: proc() = nil) =
+    callback: proc() {.gcsafe.} = nil) =
     # callback param is a hack to allow testing networked contexts on the same
     # thread. Not meant to be used in non-test code
 
@@ -1050,11 +1050,12 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   ctx.objects[self.id] = self
 
   self.publish_create = proc(sub: Subscription, broadcast: bool,
-      op_ctx = OperationContext()) {.gcsafe.} =
+      op_ctx = OperationContext()) =
     log_defaults "model_citizen publishing"
     debug "publish_create", sub
 
-    let bin = self.tracked.to_flatty
+    {.gcsafe.}:
+      let bin = self.tracked.to_flatty
     let id = self.id
     let flags = self.flags
 
@@ -1087,7 +1088,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
                 let initializer = proc() =
                   debug "deferred restore of received object value", id
-                  let value = bin.from_flatty(`value_type`, ctx)
+                  {.gcsafe.}:
+                    let value = bin.from_flatty(`value_type`, ctx)
                   let item = `zen_type`(ctx[id])
                   item.`value=`(value, op_ctx = op_ctx)
                 ctx.value_initializers.add(initializer)
@@ -1125,7 +1127,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       msg.change_object_id = change.item.id
     elif change.item is Pair[any, Zen]:
       # TODO: Properly sync ref keys
-      msg.obj = change.item.key.to_flatty
+      {.gcsafe.}:
+        msg.obj = change.item.key.to_flatty
       msg.change_object_id = change.item.value.id
     else:
       var item = ""
@@ -1140,7 +1143,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
             else:
               debug "type not registered", type_name = change.item.base_type
 
-        item = change.item.to_flatty
+        {.gcsafe.}:
+          item = change.item.to_flatty
       msg.obj = item
 
     msg.kind = if Touched in change.changes:
@@ -1173,7 +1177,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
             " " & $Zen[T, O]
 
       let value = V(self.ctx.objects[msg.change_object_id])
-      let item = (key: msg.obj.from_flatty(K, self.ctx), value: value)
+      {.gcsafe.}:
+        let item = (key: msg.obj.from_flatty(K, self.ctx), value: value)
     else:
       var item: O
       when item is ref RootObj:
@@ -1191,10 +1196,12 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
             else:
               raise_assert &"Type for ref_id {msg.ref_id} not registered"
           else:
-            item = msg.obj.from_flatty(O, self.ctx)
+            {.gcsafe.}:
+              item = msg.obj.from_flatty(O, self.ctx)
 
       else:
-        item = msg.obj.from_flatty(O, self.ctx)
+        {.gcsafe.}:
+          item = msg.obj.from_flatty(O, self.ctx)
 
     if msg.kind == Assign:
       self.assign(item, op_ctx = op_ctx)
