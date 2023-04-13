@@ -412,6 +412,29 @@ proc process_message(self: ZenContext, msg: Message) =
   else:
     raise_assert "Can't recv a blank message"
 
+proc remaining*(self: Chan): int =
+  private_access Chan
+  private_access ChannelObj
+  let size = self.d[].size
+  result = size - self.peek
+
+proc full*(self: Chan): bool =
+  self.remaining == 0
+
+proc send_or_buffer(sub: Subscription, msg: sink Message) =
+  if sub.chan_buffer.len > 0 or sub.chan.full:
+    sub.chan_buffer.add msg
+  else:
+    sub.chan.send(msg)
+
+proc flush_buffers(self: ZenContext) =
+  for sub in self.subscribers:
+    if sub.kind == Local:
+      let buffer = sub.chan_buffer
+      sub.chan_buffer = @[]
+      for msg in buffer:
+        sub.send_or_buffer(msg)
+
 proc send(self: ZenContext, sub: Subscription, msg: sink Message,
     op_ctx = OperationContext(), flags = default_flags) =
 
@@ -430,10 +453,10 @@ proc send(self: ZenContext, sub: Subscription, msg: sink Message,
 
   var msg = msg
   if sub.kind == Local and SyncLocal in flags:
-    sub.chan.send(msg)
+    sub.send_or_buffer(msg)
   elif sub.kind == Local and SyncAllNoOverwrite in flags:
     msg.obj = ""
-    sub.chan.send(msg)
+    sub.send_or_buffer(msg)
   elif sub.kind == Remote and SyncRemote in flags:
     self.reactor.send(sub.connection, msg.to_flatty.compress)
   elif sub.kind == Remote and SyncAllNoOverwrite in flags:
@@ -572,6 +595,7 @@ proc recv*(self: ZenContext,
   else:
     get_mono_time() + min_duration
 
+  self.flush_buffers
   while true:
     if poll:
       while count < messages and self.chan.peek > 0 and
@@ -619,20 +643,6 @@ proc recv*(self: ZenContext,
 
     if poll == false or ((count > 0 or not blocking) and get_mono_time() > recv_until):
       break
-
-proc remaining*(self: Chan): range[0.0..1.0] =
-  private_access Chan
-  private_access ChannelObj
-  let size = self.d[].size
-  result = 1.0 - self.peek / size
-
-proc pressure*(self: ZenContext): range[0.0..1.0] =
-  1.0 - (@[self.chan.remaining] & self.subscribers.
-      filter_it(it.kind == Local).
-      map_it(it.chan.remaining)).min
-
-proc chan_full*(self: Chan): bool =
-  self.remaining < 0.1
 
 proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext) =
   log_defaults("model_citizen publishing")

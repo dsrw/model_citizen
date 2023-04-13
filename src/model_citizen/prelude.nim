@@ -19,8 +19,7 @@ else:
   # Don't include chronicles unless it's specifically enabled.
   # Use of chronicles in a module requires that the calling module also import
   # chronicles, due to https://github.com/nim-lang/Nim/issues/11225.
-  # This has been fixed in Nim, so it's likely possible to fix in chronicles
-  # with `bind`, but this hasn't been done.
+  # This has been fixed in Nim, so it may be possible to fix in chronicles.
   template trace(msg: string, _: varargs[untyped]) = discard
   template notice(msg: string, _: varargs[untyped]) = discard
   template debug(msg: string, _: varargs[untyped]) = discard
@@ -97,6 +96,7 @@ type
     case kind: SubscriptionKind
     of Local:
       chan: Chan[Message]
+      chan_buffer: seq[Message]
     of Remote:
       connection: Connection
     else:
@@ -104,7 +104,6 @@ type
 
   ZenContext* = ref object
     flags: set[ZenFlags]
-    chan_size: int
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]
@@ -207,16 +206,16 @@ macro system_init*(_: type Zen): untyped =
     result.add initializer
 
 proc init*(_: type ZenContext,
-    name = "thread-" & $get_thread_id(), chan_size = 100, listen_address = "",
+    name = "thread-" & $get_thread_id(), listen_address = "",
     blocking_recv = false, max_recv_duration = Duration.default,
     min_recv_duration = Duration.default): ZenContext =
 
+  const chan_size = 100
   log_scope:
     topics = "model_citizen"
-
   debug "ZenContext initialized", name = name
-  result = ZenContext(name: name, chan_size: chan_size,
-      blocking_recv: blocking_recv, max_recv_duration: max_recv_duration,
+  result = ZenContext(name: name, blocking_recv: blocking_recv,
+      max_recv_duration: max_recv_duration,
       min_recv_duration: min_recv_duration)
 
   result.chan = new_chan[Message](elements = chan_size)
