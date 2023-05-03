@@ -421,8 +421,8 @@ proc remaining*(self: Chan): int =
 proc full*(self: Chan): bool =
   self.remaining == 0
 
-proc send_or_buffer(sub: Subscription, msg: sink Message) =
-  if sub.chan_buffer.len > 0 or sub.chan.full:
+proc send_or_buffer(sub: Subscription, msg: sink Message, buffer: bool) =
+  if buffer and (sub.chan_buffer.len > 0 or sub.chan.full):
     sub.chan_buffer.add msg
   else:
     sub.chan.send(msg)
@@ -433,7 +433,7 @@ proc flush_buffers(self: ZenContext) =
       let buffer = sub.chan_buffer
       sub.chan_buffer = @[]
       for msg in buffer:
-        sub.send_or_buffer(msg)
+        sub.send_or_buffer(msg, true)
 
 proc send(self: ZenContext, sub: Subscription, msg: sink Message,
     op_ctx = OperationContext(), flags = default_flags) =
@@ -453,10 +453,10 @@ proc send(self: ZenContext, sub: Subscription, msg: sink Message,
 
   var msg = msg
   if sub.kind == Local and SyncLocal in flags:
-    sub.send_or_buffer(msg)
+    sub.send_or_buffer(msg, self.buffer)
   elif sub.kind == Local and SyncAllNoOverwrite in flags:
     msg.obj = ""
-    sub.send_or_buffer(msg)
+    sub.send_or_buffer(msg, self.buffer)
   elif sub.kind == Remote and SyncRemote in flags:
     self.reactor.send(sub.connection, msg.to_flatty.compress)
   elif sub.kind == Remote and SyncAllNoOverwrite in flags:

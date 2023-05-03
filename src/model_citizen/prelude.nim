@@ -103,7 +103,6 @@ type
       discard
 
   ZenContext* = ref object
-    flags: set[ZenFlags]
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]
@@ -118,6 +117,7 @@ type
     reactor*: Reactor
     remote_messages: seq[netty.Message]
     blocking_recv: bool
+    buffer: bool
     min_recv_duration: Duration
     max_recv_duration: Duration
     subscribing*: bool
@@ -207,16 +207,16 @@ macro system_init*(_: type Zen): untyped =
 
 proc init*(_: type ZenContext,
     name = "thread-" & $get_thread_id(), listen_address = "",
-    blocking_recv = false, max_recv_duration = Duration.default,
+    blocking_recv = false, chan_size = 100, buffer = false,
+    max_recv_duration = Duration.default,
     min_recv_duration = Duration.default): ZenContext =
 
-  const chan_size = 100
   log_scope:
     topics = "model_citizen"
   debug "ZenContext initialized", name = name
   result = ZenContext(name: name, blocking_recv: blocking_recv,
       max_recv_duration: max_recv_duration,
-      min_recv_duration: min_recv_duration)
+      min_recv_duration: min_recv_duration, buffer: buffer)
 
   result.chan = new_chan[Message](elements = chan_size)
   if ?listen_address:
