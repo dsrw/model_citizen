@@ -1,36 +1,3 @@
-import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
-    strformat, atomics, strutils, locks, monotimes, os, importutils,
-    macrocache, algorithm, net, intsets]
-import std / times except local
-import pkg / [threading / channels, pretty, flatty, netty, supersnappy]
-from pkg / threading / channels {.all.} import ChannelObj
-import typeids, utils
-
-export macros, flatty, dup, sets
-
-const chronicles_enabled {.strdefine.} = "off"
-
-when chronicles_enabled == "on":
-  import pkg / chronicles
-  export active_chronicles_stream, active_chronicles_scope,
-      log_all_dynamic_properties, flush_record, Record
-
-else:
-  # Don't include chronicles unless it's specifically enabled.
-  # Use of chronicles in a module requires that the calling module also import
-  # chronicles, due to https://github.com/nim-lang/Nim/issues/11225.
-  # This has been fixed in Nim, so it may be possible to fix in chronicles.
-  template trace(msg: string, _: varargs[untyped]) = discard
-  template notice(msg: string, _: varargs[untyped]) = discard
-  template debug(msg: string, _: varargs[untyped]) = discard
-  template info(msg: string, _: varargs[untyped]) = discard
-  template warn(msg: string, _: varargs[untyped]) = discard
-  template error(msg: string, _: varargs[untyped]) = discard
-  template fatal(msg: string, _: varargs[untyped]) = discard
-  template log_scope(body: untyped) = discard
-
-  template log_defaults(log_topics = "") = discard
-
 type
   ZID* = uint16
 
@@ -156,56 +123,6 @@ type
   ZenSet*[T] = Zen[set[T], T]
   ZenValue*[T] = Zen[T, T]
 
-var local_type_registry {.threadvar.}: Table[int, RegisteredType]
-var processed_types {.threadvar.}: IntSet
-var raw_type_registry: Table[int, RegisteredType]
-var type_registry = addr raw_type_registry
-var type_registry_lock: Lock
-type_registry_lock.init_lock
-
-var active_ctx {.threadvar.}: ZenContext
-var flatty_ctx {.threadvar.}: ZenContext
-
-const default_flags* = {TrackChildren, SyncLocal, SyncRemote}
-
-template zen_ignore* {.pragma.}
-
-template with_lock(body: untyped) =
-  {.gcsafe.}:
-    locks.with_lock(type_registry_lock):
-      body
-
-const initializers = CacheSeq"initializers"
-const type_id = CacheCounter"type_id"
-var type_initializers: Table[int, CreateInitializer]
-var initialized = false
-
-proc ctx(): ZenContext
-
-proc thread_ctx*(_: type Zen): ZenContext = ctx()
-
-proc `thread_ctx=`*(_: type Zen, ctx: ZenContext) =
-  active_ctx = ctx
-
-proc `$`*(self: Subscription): string =
-  &"{self.kind} subscription for {self.ctx_name}"
-
-proc `$`*(self: ZenContext): string =
-  &"ZenContext {self.name}"
-
-when chronicles_enabled == "on":
-  # Must be explicitly called from generic procs due to
-  # https://github.com/status-im/nim-chronicles/issues/121
-  template log_defaults(log_topics = "model_citizen") =
-    log_scope:
-      topics = log_topics
-      thread_ctx = Zen.thread_ctx
-
-macro system_init*(_: type Zen): untyped =
-  result = new_stmt_list()
-  for initializer in initializers:
-    result.add initializer
-
 proc init*(_: type ZenContext,
     name = "thread-" & $get_thread_id(), listen_address = "",
     blocking_recv = false, chan_size = 100, buffer = false,
@@ -234,15 +151,34 @@ proc init*(_: type ZenContext,
     debug "listening"
     result.reactor = new_reactor(listen_address, port)
 
-proc ctx(): ZenContext =
-  if active_ctx == nil:
-    active_ctx = ZenContext.init(name = "thread-" & $get_thread_id() )
-  active_ctx
+proc `$`*(self: Subscription): string =
+  &"{self.kind} subscription for {self.ctx_name}"
 
-func tid*(T: type): int =
-  const id = type_id.value
-  static:
-    inc type_id
-  id
 
-log_defaults
+const initializers = CacheSeq"initializers"
+const type_id = CacheCounter"type_id"
+var type_initializers: Table[int, CreateInitializer]
+var initialized = false
+
+proc valid*[T: ref ZenBase](self: T): bool =
+  log_defaults
+  result = ?self and not self.destroyed
+  if not result:
+    let id = if ?self: self.id else: ""
+    debug "Zen invalid", type_name = $T, id = id
+
+proc valid*[T: ref ZenBase, V: ref ZenBase](self: T, value: V): bool =
+  self.valid and value.valid and self.ctx == value.ctx
+
+proc init(_: type Change,
+  T: type, changes: set[ChangeKind], field_name = ""): Change[T] =
+
+  Change[T](changes: changes, type_name: $Change[T], field_name: field_name)
+
+proc init[T](_: type Change, item: T,
+  changes: set[ChangeKind], field_name = ""): Change[T] =
+
+  result = Change[T](item: item, changes: changes,
+    type_name: $Change[T], field_name: field_name)
+
+const default_flags* = {TrackChildren, SyncLocal, SyncRemote}
