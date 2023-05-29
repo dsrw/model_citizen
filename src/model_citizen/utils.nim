@@ -1,10 +1,10 @@
 import std / [strformat, strutils, sequtils, sets, tables, times, monotimes,
     sugar, options, sets]
 
-import pkg / [print, flatty, nanoid]
+import pkg / [pretty, flatty, nanoid]
 export dup, collect, strformat, strutils, sequtils, sets, tables
 
-### Logic ###
+# Logic
 
 proc intersects*[T](self: set[T], other: set[T]): bool =
   for value in self:
@@ -20,14 +20,26 @@ template `?`*[T](self: open_array[T]): bool = self.len > 0
 template `?`*[T](self: set[T]): bool = self.card > 0
 template `?`*[T](self: HashSet[T]): bool = self.card > 0
 
-### Ids ###
+# Ids
 
 proc generate_id*(): string =
   generate(alphabet = "abcdefghijklmnopqrstuvwxyz0123456789", size = 13)
 
-# exceptions
+# Exceptions
 
 proc init*[T: Exception](kind: type[T], message: string, parent:
     ref Exception = nil): ref Exception =
 
   (ref kind)(msg: message, parent: parent)
+
+# General
+
+# Workaround for templates not supporting {.discardable.}
+proc make_discardable*[T](self: T): T {.discardable, inline.} = self
+
+template `\`*(s: string): string =
+  var f = fmt(s)
+  f.remove_prefix("\n")
+  f.remove_suffix(' ')
+  f.remove_suffix("\n\n")
+  f

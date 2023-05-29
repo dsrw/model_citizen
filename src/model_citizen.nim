@@ -168,7 +168,11 @@ proc recv*(self: ZenContext,
     poll = true) {.gcsafe.}
 
 proc valid*[T: ref ZenBase](self: T): bool =
-  ?self and not self.destroyed
+  log_defaults
+  result = ?self and not self.destroyed
+  if not result:
+    let id = if ?self: self.id else: ""
+    debug "Zen invalid", type_name = $T, id = id
 
 proc valid*[T: ref ZenBase, V: ref ZenBase](self: T, value: V): bool =
   self.valid and value.valid and self.ctx == value.ctx
@@ -323,9 +327,10 @@ proc link_or_unlink[T, O](self: Zen[T, O], change: Change[O], link: bool) =
         if ?change.value:
           change.value.unlink
       elif change.value is object or change.value is ref:
-        for field in change.value.deref.fields:
+        for n, field in change.value.deref.field_pairs:
           when field is Zen:
             if ?field:
+              echo "unlinking field ", n, " from ", self.id, " ", self.ctx.name
               field.unlink
 
 proc link_or_unlink[T, O](self: Zen[T, O],
@@ -352,6 +357,7 @@ proc free_refs(self: ZenContext) =
     elif self.ref_pool[id].count > 0:
       to_remove.add(id)
   for id in to_remove:
+    debug "freeing ref", id
     self.freeable_refs.del(id)
 
 proc free*[T: ref RootObj](self: ZenContext, value: T) =
@@ -380,17 +386,62 @@ proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
       if self.ref_pool[id].count == 0:
         self.freeable_refs[id] = get_mono_time() + init_duration(seconds = 10)
 
+proc untrack_all*[T, O](self: Zen[T, O]) =
+  assert self.valid
+  self.trigger_callbacks(@[Change.init(O, {Closed})])
+  for zid, _ in self.changed_callbacks:
+    if int(zid) == 46:
+      echo \"!! 2 deleting close proc 46 {self.id} {self.ctx.name}"
+    self.ctx.close_procs.del(zid)
+
+  for zid in self.bound_zids:
+    self.ctx.untrack(zid)
+
+  self.changed_callbacks.clear
+
+proc untrack*(ctx: ZenContext, zid: ZID) =
+  if zid notin ctx.close_procs:
+    echo \"!! missing close proc {zid} {ctx.name} {Zen.thread_ctx.name}"
+    #return
+
+  if zid notin ctx.close_procs:
+    raise_assert &"no close proc for zid {zid}"
+
+  assert zid in ctx.close_procs
+  ctx.close_procs[zid]()
+  if int(zid) == 46:
+    echo \"!! 3 deleting close proc {zid} {ctx.name} {Zen.thread_ctx.name}"
+  ctx.close_procs.del(zid)
+
+proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext)
+
+proc destroy*[T, O](self: Zen[T, O], publish = true) =
+  log_defaults
+  debug "destroying", unit = self.id, stack = get_stack_trace()
+  echo \"destroying {self.id} publish {publish} {Zen.thread_ctx.name}"
+  # write_stack_trace()
+  if self.destroyed:
+    echo "Already destroyed: ", self.id
+  assert self.valid
+  self.untrack_all
+  self.destroyed = true
+  self.ctx.objects.del self.id
+  if publish:
+    echo "publishing destroy"
+    self.publish_destroy OperationContext(source: self.ctx.name)
+  echo "done"
+
 proc process_message(self: ZenContext, msg: Message) =
-  log_defaults "model_citizen networking"
+  log_defaults
   assert self.name notin msg.source
-  when defined(zen_trace):
-    let src = self.name & "-" & msg.source
-    if src in self.last_received_id:
-      if msg.id != self.last_received_id[src] + 1:
-        raise_assert &"src={src} msg.id={msg.id} " &
-            &"last={self.last_received_id[src]}. Should be msg.id - 1"
-    self.last_received_id[src] = msg.id
-    debug "receiving", msg
+  # when defined(zen_trace):
+  #   let src = self.name & "-" & msg.source
+  #   if src in self.last_received_id:
+  #     if msg.id != self.last_received_id[src] + 1:
+  #       raise_assert &"src={src} msg.id={msg.id} " &
+  #           &"last={self.last_received_id[src]}. Should be msg.id - 1"
+  #   self.last_received_id[src] = msg.id
+  #   debug "receiving", msg, topics = "networking"
 
   var source = msg.source & " " & self.name
 
@@ -398,14 +449,19 @@ proc process_message(self: ZenContext, msg: Message) =
     {.gcsafe.}:
       let fn = type_initializers[msg.type_id]
       fn(msg.obj, self, msg.object_id, msg.flags,
-          OperationContext(source: source))
+          OperationContext.init(msg))
 
-  elif msg.kind == Destroy:
-    let obj = self.objects[msg.object_id]
-    assert obj.valid
-    obj.destroyed = true
-    self.objects.del(msg.object_id)
   elif msg.kind != Blank:
+    if msg.object_id notin self.objects:
+      error "missing object", object_id = msg.object_id
+      print msg
+      when defined(zen_trace):
+        echo "Echo:"
+        echo msg.trace
+        echo "Print:"
+        print msg.trace
+      raise_assert &"object {msg.object_id} not in context. Kind: {msg.kind}"
+      #print self.objects.keys.to_seq, self.objects.values.to_seq
     let obj = self.objects[msg.object_id]
     obj.change_receiver(obj, msg, op_ctx = OperationContext(source: source))
 
@@ -1130,6 +1186,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       trace: string): Message =
 
     var msg = Message(object_id: id, type_id: Zen[T, O].tid)
+    when defined(zen_trace):
+      msg.trace = trace
     assert Added in change.changes or Removed in change.changes or
       Touched in change.changes
     let change = Change[O](change)
@@ -1172,6 +1230,10 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
     assert self of Zen[T, O]
     let self = Zen[T, O](self)
+
+    if msg.kind == Destroy:
+      self.destroy(publish = false)
+      return
 
     when O is Zen:
       let object_id = msg.change_object_id
@@ -1354,13 +1416,33 @@ proc init_from*[T: object or ref](_: type T,
 template `%`*(body: untyped): untyped =
   Zen.init(body)
 
-proc track*[T, O](self: Zen[T, O],
-  callback: proc(changes: seq[Change[O]]) {.gcsafe.}): ZID {.discardable.} =
+proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
+  log_defaults
+  assert self.valid
 
+  assert zid in self.changed_callbacks
+
+  let callback = self.changed_callbacks[zid]
+  if zid notin self.paused_zids:
+    callback(@[Change.init(O, {Closed})])
+  self.ctx.close_procs.del(zid)
+  if int(zid) == 46:
+    echo \"!! 1 deleting close proc {zid} {self.id} {self.ctx.name}"
+    write_stack_trace()
+  debug "removing close proc", zid
+  self.changed_callbacks.del(zid)
+
+proc track*[T, O](self: Zen[T, O],
+    callback: proc(changes: seq[Change[O]]) {.gcsafe.}): ZID {.discardable.} =
+
+  log_defaults
   assert self.valid
   inc self.ctx.changed_callback_zid
   let zid = self.ctx.changed_callback_zid
+  if int(zid) == 46:
+    echo \"!! 46 created {self.id} {self.ctx.name}"
   self.changed_callbacks[zid] = callback
+  debug "adding close proc", zid
   self.ctx.close_procs[zid] = proc() =
     self.untrack(zid)
   result = zid
@@ -1375,6 +1457,11 @@ proc track*[T, O](self: Zen[T, O],
     callback(changes, zid)
 
   result = zid
+
+proc untrack_on_destroy*(self: ref ZenBase, zid: ZID) =
+  if int(zid) == 46:
+    echo \"binding 46 {self.id} {Zen.thread_ctx.name}"
+  self.bound_zids.incl(zid)
 
 template changes*[T, O](self: Zen[T, O], body) =
   self.track proc(changes: seq[Change[O]], zid {.inject.}: ZID) {.gcsafe.} =
@@ -1392,32 +1479,7 @@ template changes*[T, O](self: Zen[T, O], body) =
 
         body
 
-proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
-  assert self.valid
-  if zid in self.changed_callbacks:
-    let callback = self.changed_callbacks[zid]
-    if zid notin self.paused_zids:
-      callback(@[Change.init(O, {Closed})])
-    self.ctx.close_procs.del(zid)
-    self.changed_callbacks.del(zid)
 
-proc untrack_all*[T, O](self: Zen[T, O]) =
-  assert self.valid
-  self.trigger_callbacks(@[Change.init(O, {Closed})])
-  for zid, _ in self.changed_callbacks:
-    self.ctx.close_procs.del(zid)
-  self.changed_callbacks.clear
-
-proc untrack*(ctx: ZenContext, zid: ZID) =
-  if zid in ctx.close_procs:
-    ctx.close_procs[zid]()
-
-proc destroy*[T, O](self: Zen[T, O]) =
-  assert self.valid
-  self.untrack_all
-  self.destroyed = true
-  self.ctx.objects.del self.id
-  self.publish_destroy OperationContext(source: self.ctx.name)
 
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   assert self.valid

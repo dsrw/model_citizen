@@ -2,7 +2,7 @@ import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
     strformat, atomics, strutils, locks, monotimes, os, importutils,
     macrocache, algorithm, net, intsets]
 import std / times except local
-import pkg / [threading / channels, print, flatty, netty, supersnappy]
+import pkg / [threading / channels, pretty, flatty, netty, supersnappy]
 from pkg / threading / channels {.all.} import ChannelObj
 import typeids, utils
 
@@ -85,7 +85,7 @@ type
 
   RegisteredType = object
     tid: int
-    stringify: proc(self: ref RootObj): string {.noSideEffect.}
+    stringify: proc(self: ref RootObj): string {.no_side_effect.}
     parse: proc(ctx: ZenContext, clone_from: string):
         ref RootObj {.no_side_effect.}
 
@@ -106,7 +106,7 @@ type
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]
-    objects: OrderedTable[string, ref ZenBase]
+    objects*: OrderedTable[string, ref ZenBase]
     ref_pool: Table[string, CountedRef]
     subscribers: seq[Subscription]
     name*: string
@@ -126,10 +126,11 @@ type
     unsubscribed*: seq[string]
 
   ZenBase = object of RootObj
-    id: string
-    destroyed: bool
+    id*: string
+    destroyed*: bool
     link_zid: ZID
     paused_zids: set[ZID]
+    bound_zids: set[ZID]
     flags: set[ZenFlags]
     build_message: proc(self: ref ZenBase, change: BaseChange, id: string,
         trace: string): Message {.gcsafe.}

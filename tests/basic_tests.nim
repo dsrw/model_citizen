@@ -1,6 +1,6 @@
 import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
     unittest, deques, importutils, monotimes, os]
-import pkg / [print, chronicles, netty]
+import pkg / [pretty, chronicles, netty]
 import model_citizen
 from std / times import init_duration
 from model_citizen {.all.} import ref_id, CountedRef

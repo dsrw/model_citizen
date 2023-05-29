@@ -10,7 +10,7 @@ src_dir       = "src"
 
 requires(
   "nim >= 1.4.8",
-  "print#b671140",
+  "https://github.com/treeform/pretty",
   "threading",
   "chronicles",
   "flatty",

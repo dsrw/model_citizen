@@ -8,6 +8,15 @@ var global_cond: Cond
 global_cond.init_cond
 var worker_thread: Thread[ZenContext]
 
+
+type
+  UnitFlags = enum
+    Start, End
+
+  Unit = ref object of RootObj
+    flags: ZenSet[UnitFlags]
+    units: ZenSeq[Unit]
+
 proc start_worker(ctx: ZenContext) {.thread.} =
   Zen.thread_ctx = ctx
 
@@ -30,7 +39,7 @@ proc start_worker(ctx: ZenContext) {.thread.} =
     ctx.recv
 
 proc run* =
-  test "basic":
+  test "reload":
     Zen.thread_ctx.clear
     Zen.thread_ctx = ZenContext.init(name = "main")
     var ctx = ZenContext.init(name = "worker", listen_address = "127.0.0.1")

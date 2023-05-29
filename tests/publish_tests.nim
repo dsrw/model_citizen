@@ -1,5 +1,5 @@
 import std / [tables, sugar, unittest]
-import pkg / [flatty, chronicles, print]
+import pkg / [flatty, chronicles, pretty]
 import model_citizen
 from std / times import init_duration
 
