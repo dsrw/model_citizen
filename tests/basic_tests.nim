@@ -3,7 +3,10 @@ import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
 import pkg / [pretty, chronicles, netty]
 import model_citizen
 from std / times import init_duration
-from model_citizen {.all.} import ref_id, CountedRef
+import model_citizen / types / defs {.all.}
+import model_citizen / types / zens {.all.}
+import model_citizen / types / contexts {.all.}
+import model_citizen / type_registry
 
 proc run* =
   var change_count = 0

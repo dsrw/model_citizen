@@ -1,3 +1,92 @@
+import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks]
+import pkg / threading / channels {.all.}
+import pkg / [flatty, supersnappy]
+import pkg / netty except Message
+import model_citizen / [utils, logging, typeids, type_registry]
+import types / defs {.all.}
+
+private_access ZenContext
+private_access ZenBase
+
+var flatty_ctx {.threadvar.}: ZenContext
+
+type FlatRef = tuple[tid: int, ref_id: string, item: string]
+
+type ZenFlattyInfo = tuple[object_id: string, tid: int]
+
+
+
+proc to_flatty*[T: ref RootObj](s: var string, x: T) =
+  when x is ref ZenBase:
+    s.to_flatty not ?x
+    if ?x:
+      s.to_flatty ZenFlattyInfo((x.id, x.type.tid))
+  else:
+    var registered_type: RegisteredType
+    when compiles(x.id):
+      if ?x and x.lookup_type(registered_type):
+        s.to_flatty true
+        let obj: FlatRef = (tid: registered_type.tid, ref_id: x.ref_id,
+            item: registered_type.stringify(x))
+
+        flatty.to_flatty(s, obj)
+        return
+    s.to_flatty false
+    s.to_flatty not ?x
+    if ?x:
+      flatty.to_flatty(s, x)
+
+proc from_flatty*[T: ref RootObj](s: string, i: var int, value: var T) =
+  private_access ZenContext
+  when value is ref ZenBase:
+    var is_nil: bool
+    s.from_flatty(i, is_nil)
+    if not is_nil:
+      var info: ZenFlattyInfo
+      s.from_flatty(i, info)
+      value = value.type()(flatty_ctx.objects[info.object_id])
+  else:
+    var is_registered: bool
+    s.from_flatty(i, is_registered)
+    if is_registered:
+      var val: FlatRef
+      flatty.from_flatty(s, i, val)
+
+      if val.ref_id in flatty_ctx.ref_pool:
+        value = value.type()(flatty_ctx.ref_pool[val.ref_id].obj)
+      else:
+        var registered_type: RegisteredType
+        assert lookup_type(val.tid, registered_type)
+        value = value.type()(registered_type.parse(flatty_ctx, val.item))
+    else:
+      var is_nil: bool
+      s.from_flatty(i, is_nil)
+      if not is_nil:
+        value = value.type()()
+        value[] = flatty.from_flatty(s, value[].type)
+
+proc to_flatty*(s: var string, x: proc) =
+  discard
+
+proc from_flatty*(s: string, i: var int, p: proc) =
+  discard
+
+proc to_flatty*(s: var string, p: ptr) =
+  discard
+
+proc to_flatty*(s: var string, p: pointer) =
+  discard
+
+proc from_flatty*(s: string, i: var int, p: pointer) =
+  discard
+
+proc from_flatty*(s: string, i: var int, p: ptr) =
+  discard
+
+proc from_flatty*(bin: string, T: type, ctx: ZenContext): T =
+  flatty_ctx = ctx
+  result = flatty.from_flatty(bin, T)
+
 proc remaining*(self: Chan): int =
   private_access Chan
   private_access ChannelObj
@@ -13,7 +102,7 @@ proc send_or_buffer(sub: Subscription, msg: sink Message, buffer: bool) =
   else:
     sub.chan.send(msg)
 
-proc flush_buffers(self: ZenContext) =
+proc flush_buffers*(self: ZenContext) =
   for sub in self.subscribers:
     if sub.kind == Local:
       let buffer = sub.chan_buffer
@@ -21,7 +110,7 @@ proc flush_buffers(self: ZenContext) =
       for msg in buffer:
         sub.send_or_buffer(msg, true)
 
-proc send(self: ZenContext, sub: Subscription, msg: sink Message,
+proc send*(self: ZenContext, sub: Subscription, msg: sink Message,
     op_ctx = OperationContext(), flags = default_flags) =
 
   log_defaults("model_citizen networking")
@@ -49,23 +138,8 @@ proc send(self: ZenContext, sub: Subscription, msg: sink Message,
     msg.obj = ""
     self.reactor.send(sub.connection, msg.to_flatty.compress)
 
-proc add_subscriber(self: ZenContext, sub: Subscription, push_all: bool,
-    remote_objects: HashSet[string]) =
-
-  debug "adding subscriber", sub
-  self.subscribers.add sub
-  for id in self.objects.keys.to_seq.reversed:
-    if id notin remote_objects or push_all:
-      debug "sending object on subscribe", from_ctx = self.name,
-          to_ctx = sub.ctx_name, zen_id = id
-
-      let zen = self.objects[id]
-      zen.publish_create sub
-    else:
-      debug "not sending object because remote ctx already has it",
-          from_ctx = self.name, to_ctx = sub.ctx_name, zen_id = id
-
-proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext) =
+proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
+  private_access ZenContext
   log_defaults("model_citizen publishing")
   debug "publishing destroy", zen_id = self.id
   for sub in self.ctx.subscribers:
@@ -83,8 +157,11 @@ proc publish_destroy[T, O](self: Zen[T, O], op_ctx: OperationContext) =
     self.ctx.dead_connections &= self.ctx.reactor.dead_connections
     self.ctx.remote_messages &= self.ctx.reactor.messages
 
-proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]],
+proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
     op_ctx: OperationContext) =
+
+  private_access ZenContext
+  private_access ZenBase
 
   log_defaults("model_citizen publishing")
   debug "publish_changes", ctx = self.ctx, op_ctx
@@ -112,3 +189,19 @@ proc publish_changes[T, O](self: Zen[T, O], changes: seq[Change[O]],
       self.ctx.reactor.tick
       self.ctx.dead_connections &= self.ctx.reactor.dead_connections
       self.ctx.remote_messages &= self.ctx.reactor.messages
+
+proc add_subscriber*(self: ZenContext, sub: Subscription, push_all: bool,
+    remote_objects: HashSet[string]) =
+
+  debug "adding subscriber", sub
+  self.subscribers.add sub
+  for id in self.objects.keys.to_seq.reversed:
+    if id notin remote_objects or push_all:
+      debug "sending object on subscribe", from_ctx = self.name,
+          to_ctx = sub.ctx_name, zen_id = id
+
+      let zen = self.objects[id]
+      zen.publish_create sub
+    else:
+      debug "not sending object because remote ctx already has it",
+          from_ctx = self.name, to_ctx = sub.ctx_name, zen_id = id

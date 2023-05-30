@@ -1,53 +1,18 @@
-template deref(o: ref): untyped = o[]
-template deref(o: not ref): untyped = o
+import std / [monotimes, times, intsets, locks, importutils]
+import pkg / flatty
+import types / defs {.all.}
+import types / [contexts]
+import model_citizen / [logging, utils, typeids, type_registry]
 
-proc ref_id[T: ref RootObj](value: T): string {.inline.} =
-  $value.type_id & ":" & $value.id
+proc `-`[T](a, b: seq[T]): seq[T] = a.filter proc(it: T): bool =
+  it notin b
 
-proc ref_count[O](self: ZenContext, changes: seq[Change[O]]) =
-  log_defaults
-
-  for change in changes:
-    if not ?change.item:
-      continue
-    let id = change.item.ref_id
-    if Added in change.changes:
-      if id notin self.ref_pool:
-        debug "saving ref", id
-        self.ref_pool[id] = CountedRef()
-      inc self.ref_pool[id].count
-      self.ref_pool[id].obj = change.item
-    if Removed in change.changes:
-      assert id in self.ref_pool
-      dec self.ref_pool[id].count
-      if self.ref_pool[id].count == 0:
-        self.freeable_refs[id] = get_mono_time() + init_duration(seconds = 10)
-
-
-proc lookup_type(key: int, registered_type: var RegisteredType): bool =
-  if key in local_type_registry:
-    registered_type = local_type_registry[key]
-    result = true
-  elif key in processed_types:
-    # we don't want to lookup a type in the global registry if we've already
-    # tried, since it needs a lock
-    result = false
-  else:
-    processed_types.incl(key)
-    with_lock:
-      if key in type_registry[]:
-        registered_type = type_registry[][key]
-        local_type_registry[key] = registered_type
-        result = true
-
-proc lookup_type(obj: ref RootObj, registered_type: var RegisteredType): bool =
-  result = lookup_type(obj.type_id, registered_type)
-
-  if not result:
-    debug "type not registered", type_name = obj.base_type
-
+template `&`[T](a, b: set[T]): set[T] = a + b
 
 proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
+  private_access ZenObject[T, O]
+  private_access ZenBase
+
   if changes.len > 0:
     let callbacks = self.changed_callbacks.dup
     for zid, callback in callbacks.pairs:
@@ -55,9 +20,10 @@ proc trigger_callbacks[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
         callback(changes)
 
 proc link_child[K, V](self: ZenTable[K, V],
-  child, obj: Pair[K, V], field_name = "") =
+    child, obj: Pair[K, V], field_name = "") =
 
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
+    private_access ZenBase
     log_defaults
     child.link_zid = child.track proc(changes: seq[Change[O]]) =
       if changes.len == 1 and changes[0].changes == {Closed}:
@@ -79,6 +45,7 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
     self = self
     obj = obj
   proc link[T, O](child: Zen[T, O]) =
+    private_access ZenBase
     log_defaults
     child.link_zid = child.track proc(changes: seq[Change[O]]) =
       if changes.len == 1 and changes[0].changes == {Closed}:
@@ -97,6 +64,8 @@ proc link_child[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
     link(child)
 
 proc unlink(self: Zen) =
+
+  private_access ZenBase
   log_defaults
   debug "unlinking", id = self.id, zid = self.link_zid
   self.untrack(self.link_zid)
@@ -142,6 +111,7 @@ proc link_or_unlink[T, O](self: Zen[T, O],
 proc process_changes[T](self: Zen[T, T], initial: sink T,
     op_ctx: OperationContext, touch = false) =
 
+  private_access ZenObject[T, T]
   if initial != self.tracked:
     var add_flags = {Added, Modified}
     var del_flags = {Removed, Modified}
@@ -168,6 +138,7 @@ proc process_changes[T](self: Zen[T, T], initial: sink T,
 
 proc process_changes[T: seq | set, O](self: Zen[T, O],
     initial: sink T, op_ctx: OperationContext, touch = T.default) =
+  private_access ZenObject
 
   let added = (self.tracked - initial).map_it:
     let changes = if it in touch: {Touched} else: {}
@@ -190,8 +161,9 @@ proc process_changes[T: seq | set, O](self: Zen[T, O],
   self.trigger_callbacks(changes)
 
 proc process_changes[K, V](self: Zen[Table[K, V],
-  Pair[K, V]], initial_table: sink Table[K, V], op_ctx: OperationContext) =
+    Pair[K, V]], initial_table: sink Table[K, V], op_ctx: OperationContext) =
 
+  private_access ZenObject
   let
     tracked: seq[Pair[K, V]] = self.tracked.pairs.to_seq
     initial: seq[Pair[K, V]] = initial_table.pairs.to_seq
@@ -216,6 +188,7 @@ proc process_changes[K, V](self: Zen[Table[K, V],
   self.trigger_callbacks(changes)
 
 template mutate_and_touch(touch, op_ctx, body: untyped) =
+  private_access ZenObject
   when self.tracked is Zen:
     let initial_values = self.tracked[]
   elif self.tracked is ref:
@@ -226,6 +199,7 @@ template mutate_and_touch(touch, op_ctx, body: untyped) =
   self.process_changes(initial_values, op_ctx, touch)
 
 template mutate(op_ctx: OperationContext, body: untyped) =
+  private_access ZenObject
   when self.tracked is Zen:
     let initial_values = self.tracked[]
   elif self.tracked is ref:
@@ -288,6 +262,7 @@ proc unassign[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
 proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     op_ctx: OperationContext) =
 
+  private_access ZenObject
   assert self.valid
 
   if key in self.tracked and self.tracked[key] != value:
@@ -328,13 +303,16 @@ proc put[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     self.trigger_callbacks changes
 
 proc find_ref[T](self: ZenContext, value: var T): bool =
+  private_access ZenContext
   if ?value:
     let id = value.ref_id
     if id in self.ref_pool:
       value = T(self.ref_pool[id].obj)
       result = true
 
-proc free_refs(self: ZenContext) =
+proc free_refs*(self: ZenContext) =
+  private_access ZenContext
+
   var to_remove: seq[string]
   for id, free_at in self.freeable_refs:
     assert self.ref_pool[id].count >= 0
@@ -355,6 +333,9 @@ proc free*[T: ref RootObj](self: ZenContext, value: T) =
   self.freeable_refs.del(id)
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
+  private_access ZenObject[T, O]
+  private_access ZenBase
+  private_access ZenContext
   assert self.valid
   self.trigger_callbacks(@[Change.init(O, {Closed})])
   for zid, _ in self.changed_callbacks:
@@ -368,6 +349,8 @@ proc untrack_all*[T, O](self: Zen[T, O]) =
   self.changed_callbacks.clear
 
 proc untrack*(ctx: ZenContext, zid: ZID) =
+  private_access ZenContext
+
   if zid notin ctx.close_procs:
     echo \"!! missing close proc {zid} {ctx.name} {Zen.thread_ctx.name}"
     #return

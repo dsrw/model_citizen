@@ -1,8 +1,29 @@
+import std / [macros, macrocache, importutils]
+import pkg / threading / channels
+import pkg / [chronicles]
+import pkg / netty except Message
+import defs {.all.}
+import contexts
+import model_citizen / [utils, logging, type_registry]
+import model_citizen / operations {.all.}
+import contexts
+export Zen, ZenValue, ZenTable, ZenSet, ZenSeq
+
+proc ctx: ZenContext = Zen.thread_ctx
+
+template setup_op_ctx(self: ZenContext) =
+  let op_ctx = if ?op_ctx:
+    op_ctx
+  else:
+    OperationContext(source: self.name)
+
 proc contains*[T, O](self: Zen[T, O], child: O): bool =
+  private_access ZenObject
   assert self.valid
   child in self.tracked
 
 proc contains*[K, V](self: ZenTable[K, V], key: K): bool =
+  private_access ZenObject
   assert self.valid
   key in self.tracked
 
@@ -14,13 +35,12 @@ proc contains*[T, O](self: Zen[T, O], children: set[O] | seq[O]): bool =
       return false
 
 proc len[T, O](self: Zen[T, O]): int =
+  private_access ZenObject
   assert self.valid
   self.tracked.len
 
 proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     op_ctx: OperationContext): Zen[T, O] {.gcsafe.}
-
-
 
 proc init*(T: type Zen, flags = default_flags, ctx = ctx(), id = "",
     op_ctx = OperationContext()): T =
@@ -28,8 +48,14 @@ proc init*(T: type Zen, flags = default_flags, ctx = ctx(), id = "",
   ctx.setup_op_ctx
   T(flags: flags).defaults(ctx, id, op_ctx)
 
+proc init*(_: type, T: type[string], flags = default_flags, ctx = ctx(), id = "",
+    op_ctx = OperationContext()): Zen[string, string] =
+
+  ctx.setup_op_ctx
+  result = Zen[string, string](flags: flags).defaults(ctx, id, op_ctx)
+
 proc init*(_: type Zen,
-    T: type[ref | object | SomeOrdinal | SomeNumber | string],
+    T: type[ref | object | SomeOrdinal | SomeNumber],
     flags = default_flags, ctx = ctx(), id = "",
     op_ctx = OperationContext()): Zen[T, T] =
 
@@ -60,7 +86,8 @@ proc init*[O](_: type Zen, tracked: set[O], flags = default_flags, ctx = ctx(),
   result = self
 
 proc init*[K, V](_: type Zen, tracked: Table[K, V], flags = default_flags,
-    ctx = ctx(), id = "", op_ctx = OperationContext()): ZenTable[K, V] =
+    ctx = ctx(), id = "", op_ctx = OperationContext()
+    ): ZenTable[K, V] =
 
   ctx.setup_op_ctx
   var self = ZenTable[K, V](flags: flags).defaults(
@@ -71,7 +98,8 @@ proc init*[K, V](_: type Zen, tracked: Table[K, V], flags = default_flags,
   result = self
 
 proc init*[O](_: type Zen, tracked: open_array[O], flags = default_flags,
-    ctx = ctx(), id = "", op_ctx = OperationContext()): Zen[seq[O], O] =
+    ctx = ctx(), id = "", op_ctx = OperationContext()
+    ): Zen[seq[O], O] =
 
   ctx.setup_op_ctx
   var self = Zen[seq[O], O](flags: flags).defaults(
@@ -81,15 +109,17 @@ proc init*[O](_: type Zen, tracked: open_array[O], flags = default_flags,
     self.tracked = tracked.to_seq
   result = self
 
-proc init*[O](_: type Zen, T: type seq[O], flags = default_flags, ctx = ctx(),
-    id = "", op_ctx = OperationContext()): Zen[seq[O], O] =
+proc init*[O](_: type Zen, T: type seq[O], flags = default_flags,
+    ctx = ctx(), id = "", op_ctx = OperationContext()
+    ): Zen[seq[O], O] =
 
   ctx.setup_op_ctx
   result = Zen[seq[O], O](flags: flags).defaults(
       ctx, id, op_ctx)
 
-proc init*[O](_: type Zen, T: type set[O], flags = default_flags, ctx = ctx(),
-    id = "", op_ctx = OperationContext()): Zen[set[O], O] =
+proc init*[O](_: type Zen, T: type set[O], flags = default_flags,
+    ctx = ctx(), id = "", op_ctx = OperationContext()
+    ): Zen[set[O], O] =
 
   ctx.setup_op_ctx
   result = Zen[set[O], O](flags: flags).defaults(
@@ -129,6 +159,8 @@ proc clear*[T, O](self: Zen[T, O]) =
     self.tracked = T.default
 
 proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
+  private_access ZenObject[T, O]
+
   assert self.valid
   self.ctx.setup_op_ctx
   if self.tracked != value:
@@ -136,14 +168,17 @@ proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
       self.tracked = value
 
 proc value*[T, O](self: Zen[T, O]): T =
+  private_access ZenObject
   assert self.valid
   self.tracked
 
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
+  private_access ZenObject
   assert self.valid
   self.tracked[index]
 
 proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
+  private_access ZenObject
   assert self.valid
   self.tracked[index]
 
@@ -162,6 +197,7 @@ proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T,
     self.tracked[index] = value
 
 proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
+  private_access ZenObject
   self.ctx.setup_op_ctx
   when O is Zen:
     assert self.valid(value)
@@ -194,6 +230,7 @@ proc del*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
     remove(self, value, value, del, op_ctx)
 
 proc del*[K, V](self: ZenTable[K, V], key: K, op_ctx = OperationContext()) =
+  private_access ZenObject
   self.ctx.setup_op_ctx
   assert self.valid
   if key in self.tracked:
@@ -201,6 +238,8 @@ proc del*[K, V](self: ZenTable[K, V], key: K, op_ctx = OperationContext()) =
 
 proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal,
     op_ctx = OperationContext()) =
+
+  private_access ZenObject
 
   self.ctx.setup_op_ctx
   assert self.valid
@@ -255,6 +294,7 @@ proc touch*[T](self: ZenValue[T], value: T, op_ctx = OperationContext()) =
     self.tracked = value
 
 proc len*(self: Zen): int =
+  private_access ZenObject
   assert self.valid
   self.tracked.len
 
@@ -287,12 +327,16 @@ proc `&=`*[T, O](self: Zen[T, O], value: O) =
   self.value = self.value & value
 
 proc `==`*(a, b: Zen): bool =
+  private_access ZenObject
   a.is_nil == b.is_nil and a.destroyed == b.destroyed and
     a.tracked == b.tracked and a.id == b.id
 
 proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     op_ctx: OperationContext): Zen[T, O] =
 
+  private_access ZenObject[T, O]
+  private_access ZenBase
+  private_access ZenContext
   log_defaults
 
   self.id = if id == "":

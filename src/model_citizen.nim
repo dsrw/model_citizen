@@ -2,76 +2,30 @@ import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
     strformat, atomics, strutils, locks, monotimes, os, importutils,
     macrocache, algorithm, net, intsets]
 import std / times except local
-import pkg / [threading / channels, pretty, flatty, netty, supersnappy]
+import pkg / [threading / channels, pretty, flatty, supersnappy]
+import pkg / netty except Message
 from pkg / threading / channels {.all.} import ChannelObj
-import model_citizen / [typeids, utils]
+import model_citizen / [typeids, utils, logging]
 
 export macros, flatty, dup, sets
 
-const chronicles_enabled {.strdefine.} = "off"
+import model_citizen / types / defs {.all.}
 
-when chronicles_enabled == "on":
-  import pkg / chronicles
-  export active_chronicles_stream, active_chronicles_scope,
+import model_citizen / types / [contexts, zens]
+import model_citizen / [subscriptions, operations, logging, type_registry]
+
+export zens, contexts, subscriptions, operations
+export active_chronicles_stream, active_chronicles_scope,
       log_all_dynamic_properties, flush_record, Record
-
-else:
-  # Don't include chronicles unless it's specifically enabled.
-  # Use of chronicles in a module requires that the calling module also import
-  # chronicles, due to https://github.com/nim-lang/Nim/issues/11225.
-  # This has been fixed in Nim, so it may be possible to fix in chronicles.
-  template trace(msg: string, _: varargs[untyped]) = discard
-  template notice(msg: string, _: varargs[untyped]) = discard
-  template debug(msg: string, _: varargs[untyped]) = discard
-  template info(msg: string, _: varargs[untyped]) = discard
-  template warn(msg: string, _: varargs[untyped]) = discard
-  template error(msg: string, _: varargs[untyped]) = discard
-  template fatal(msg: string, _: varargs[untyped]) = discard
-  template log_scope(body: untyped) = discard
-
-  template log_defaults(log_topics = "") = discard
-
-template log_defaults(log_topics = "model_citizen") = discard
-
-proc `-`[T](a, b: seq[T]): seq[T] = a.filter proc(it: T): bool =
-  it notin b
-
-template `&`[T](a, b: set[T]): set[T] = a + b
-
-include model_citizen / [types]
-
-var local_type_registry {.threadvar.}: Table[int, RegisteredType]
-var processed_types {.threadvar.}: IntSet
-var raw_type_registry: Table[int, RegisteredType]
-var type_registry = addr raw_type_registry
-var type_registry_lock: Lock
-type_registry_lock.init_lock
-
-template with_lock(body: untyped) =
-  {.gcsafe.}:
-    locks.with_lock(type_registry_lock):
-      body
-
-include model_citizen / types / [zen_context, operation_context]
-include model_citizen / [subscriptions, operations]
-include model_citizen / types / [zen]
-
-var flatty_ctx {.threadvar.}: ZenContext
-
-template zen_ignore* {.pragma.}
-
-when chronicles_enabled == "on":
-  # Must be explicitly called from generic procs due to
-  # https://github.com/status-im/nim-chronicles/issues/121
-  template log_defaults(log_topics = "model_citizen") =
-    log_scope:
-      topics = log_topics
-      thread_ctx = Zen.thread_ctx
 
 macro system_init*(_: type Zen): untyped =
   result = new_stmt_list()
   for initializer in initializers:
     result.add initializer
+
+const type_id = CacheCounter"type_id"
+
+proc ctx(): ZenContext = Zen.thread_ctx
 
 func tid*(T: type): int =
   const id = type_id.value
@@ -81,125 +35,12 @@ func tid*(T: type): int =
 
 log_defaults
 
-type FlatRef = tuple[tid: int, ref_id: string, item: string]
-
-type ZenFlattyInfo = tuple[object_id: string, tid: int]
-
-proc to_flatty*[T: ref RootObj](s: var string, x: T) =
-  when x is ref ZenBase:
-    s.to_flatty not ?x
-    if ?x:
-      s.to_flatty ZenFlattyInfo((x.id, x.type.tid))
-  else:
-    var registered_type: RegisteredType
-    when compiles(x.id):
-      if ?x and x.lookup_type(registered_type):
-        s.to_flatty true
-        let obj: FlatRef = (tid: registered_type.tid, ref_id: x.ref_id,
-            item: registered_type.stringify(x))
-
-        flatty.to_flatty(s, obj)
-        return
-    s.to_flatty false
-    s.to_flatty not ?x
-    if ?x:
-      flatty.to_flatty(s, x)
-
-proc from_flatty*[T: ref RootObj](s: string, i: var int, value: var T) =
-  when value is ref ZenBase:
-    var is_nil: bool
-    s.from_flatty(i, is_nil)
-    if not is_nil:
-      var info: ZenFlattyInfo
-      s.from_flatty(i, info)
-      value = value.type()(flatty_ctx.objects[info.object_id])
-  else:
-    var is_registered: bool
-    s.from_flatty(i, is_registered)
-    if is_registered:
-      var val: FlatRef
-      flatty.from_flatty(s, i, val)
-
-      if val.ref_id in flatty_ctx.ref_pool:
-        value = value.type()(flatty_ctx.ref_pool[val.ref_id].obj)
-      else:
-        var registered_type: RegisteredType
-        assert lookup_type(val.tid, registered_type)
-        value = value.type()(registered_type.parse(flatty_ctx, val.item))
-    else:
-      var is_nil: bool
-      s.from_flatty(i, is_nil)
-      if not is_nil:
-        value = value.type()()
-        value[] = flatty.from_flatty(s, value[].type)
-
-proc to_flatty*(s: var string, x: proc) =
-  discard
-
-proc from_flatty*(s: string, i: var int, p: proc) =
-  discard
-
-proc to_flatty*(s: var string, p: ptr) =
-  discard
-
-proc to_flatty*(s: var string, p: pointer) =
-  discard
-
-proc from_flatty*(s: string, i: var int, p: pointer) =
-  discard
-
-proc from_flatty*(s: string, i: var int, p: ptr) =
-  discard
-
-proc from_flatty*(bin: string, T: type, ctx: ZenContext): T =
-  flatty_ctx = ctx
-  result = flatty.from_flatty(bin, T)
-
-proc register_type*(_: type Zen, typ: type) =
-  log_defaults
-  let key = typ.type_id
-
-  with_lock:
-    assert key notin type_registry[], "Type already registered"
-
-  let stringify = func(self: ref RootObj): string =
-    let self = typ(self)
-    var clone = new typ
-    clone[] = self[]
-    for src, dest in fields(self[], clone[]):
-      when src is Zen:
-        if ?src:
-          var field = type(src)()
-          field.id = src.id
-          dest = field
-      elif src is ref:
-        dest = nil
-      elif (src is proc):
-        dest = nil
-      elif src.has_custom_pragma(zen_ignore):
-        dest = dest.type.default
-    {.no_side_effect.}:
-      result = flatty.to_flatty(clone[])
-
-  let parse = func(ctx: ZenContext, clone_from: string): ref RootObj =
-    var self = typ()
-    {.no_side_effect.}:
-      self[] = from_flatty(clone_from, self[].type, ctx)
-    for field in self[].fields:
-      when field is Zen:
-        if ?field and field.id in ctx:
-          field = type(field)(ctx[field.id])
-    result = self
-
-  with_lock:
-    type_registry[][key] = RegisteredType(stringify: stringify, parse: parse,
-        tid: key)
-
 proc clear*(self: ZenContext) =
   debug "Clearing ZenContext"
   self.objects.clear
 
 
+private_access ZenContext
 
 proc recv*(self: ZenContext,
     messages = int.high, max_duration = self.max_recv_duration, min_duration =
@@ -222,6 +63,8 @@ proc resume_changes*(self: Zen, zids: varargs[ZID]) =
     for zid in zids: self.paused_zids.excl(zid)
 
 template pause_impl(self: Zen, zids: untyped, body: untyped) =
+  private_access ZenBase
+
   let previous = self.paused_zids
   for zid in zids:
     self.paused_zids.incl(zid)
@@ -236,6 +79,7 @@ template pause*(self: Zen, zids: varargs[ZID], body: untyped) =
   pause_impl(self, zids, body)
 
 template pause*(self: Zen, body: untyped) =
+  private_access ZenObject
   mixin valid
   assert self.valid
   pause_impl(self, self.changed_callbacks.keys, body)
@@ -256,6 +100,7 @@ proc destroy*[T, O](self: Zen[T, O], publish = true) =
     self.publish_destroy OperationContext(source: self.ctx.name)
   echo "done"
 
+private_access ZenBase
 proc process_message(self: ZenContext, msg: Message) =
   log_defaults
   assert self.name notin msg.source
@@ -490,6 +335,10 @@ template `%`*(body: untyped): untyped =
   Zen.init(body)
 
 proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
+  private_access ZenObject[T, O]
+  private_access ZenBase
+  private_access ZenContext
+
   log_defaults
   assert self.valid
 
@@ -508,6 +357,8 @@ proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
 proc track*[T, O](self: Zen[T, O],
     callback: proc(changes: seq[Change[O]]) {.gcsafe.}): ZID {.discardable.} =
 
+  private_access ZenContext
+  private_access ZenObject[T, O]
   log_defaults
   assert self.valid
   inc self.ctx.changed_callback_zid

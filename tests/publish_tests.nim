@@ -1,6 +1,8 @@
 import std / [tables, sugar, unittest]
 import pkg / [flatty, chronicles, pretty]
 import model_citizen
+import model_citizen / types / defs
+import model_citizen / type_registry
 from std / times import init_duration
 
 proc run* =
