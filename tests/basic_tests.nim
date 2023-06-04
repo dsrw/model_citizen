@@ -1,9 +1,12 @@
 import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
     unittest, deques, importutils, monotimes, os]
-import pkg / [print, chronicles, netty]
+import pkg / [pretty, chronicles, netty]
 import model_citizen
 from std / times import init_duration
-from model_citizen {.all.} import ref_id, CountedRef
+import model_citizen / types / [defs {.all.}, zens {.all.},
+    zen_contexts {.all.}]
+
+import model_citizen / components / type_registry
 
 proc run* =
   var change_count = 0
@@ -130,7 +133,6 @@ proc run* =
       s.value == {Flag2, Flag3}
       also_added == {Flag2, Flag3}
       also_removed == {Flag1, Flag4}
-    s.untrack(zid)
     s.clear()
     check also_removed == {Flag2, Flag3}
 

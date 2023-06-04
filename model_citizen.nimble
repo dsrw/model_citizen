@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.11.1"
+version       = "0.12.0"
 author        = "Scott Wadden"
 description   = "Nothing for now"
 license       = "MIT"
@@ -10,7 +10,7 @@ src_dir       = "src"
 
 requires(
   "nim >= 1.4.8",
-  "print#b671140",
+  "https://github.com/treeform/pretty",
   "threading",
   "chronicles",
   "flatty",

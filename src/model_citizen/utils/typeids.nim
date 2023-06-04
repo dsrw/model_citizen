@@ -1,4 +1,4 @@
-import std / [unittest, hashes, typetraits]
+import std / [hashes]
 
 proc base_type*(obj: RootObj): cstring =
   when not defined(nimTypeNames):
@@ -15,6 +15,7 @@ proc type_id*(T: type[ref RootObj]): int =
   T().type_id
 
 when is_main_module:
+  import std / unittest
   type
     One = ref object of RootObj
     Two = ref object of One
