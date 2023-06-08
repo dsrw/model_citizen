@@ -79,6 +79,7 @@ proc unlink*[T: Pair](pair: T) =
   pair.value.link_zid = 0
 
 proc link_or_unlink*[T, O](self: Zen[T, O], change: Change[O], link: bool) =
+  log_defaults
   template value(change: Change[Pair]): untyped = change.item.value
   template value(change: not Change[Pair]): untyped = change.item
 
@@ -90,6 +91,7 @@ proc link_or_unlink*[T, O](self: Zen[T, O], change: Change[O], link: bool) =
         for name, val in change.value.deref.field_pairs:
           when val is Zen:
             if ?val:
+              debug "linking field", field = name, type = $change.value.type
               self.link_child(val, change.item, name)
     else:
       when change.value is Zen:
@@ -98,7 +100,7 @@ proc link_or_unlink*[T, O](self: Zen[T, O], change: Change[O], link: bool) =
       elif change.value is object or change.value is ref:
         for n, field in change.value.deref.field_pairs:
           when field is Zen:
-            if ?field:
+            if ?field and not field.destroyed:
               field.unlink
 
 proc link_or_unlink*[T, O](self: Zen[T, O],

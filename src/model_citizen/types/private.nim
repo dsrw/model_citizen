@@ -27,8 +27,10 @@ Op Trace:
 {get_stack_trace()}
 
     """
+  elif source is Message:
+    result.source = \"{source.source} {new_source}"
   else:
-    result.source = source
+    result.source = \"{source} {new_source}"
 
 template setup_op_ctx*(self: ZenContext) =
   let op_ctx = if ?op_ctx:

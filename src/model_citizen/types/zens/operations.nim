@@ -20,13 +20,13 @@ proc untrack_all*[T, O](self: Zen[T, O]) =
 proc untrack*(ctx: ZenContext, zid: ZID) =
   private_access ZenContext
 
-  if zid notin ctx.close_procs:
-    raise_assert \"no close proc for zid {zid} {ctx.name}"
-
-  assert zid in ctx.close_procs
-  ctx.close_procs[zid]()
-  debug "deleting close proc", zid
-  ctx.close_procs.del(zid)
+  # :(
+  if zid in ctx.close_procs:
+    ctx.close_procs[zid]()
+    debug "deleting close proc", zid
+    ctx.close_procs.del(zid)
+  else:
+    error "No close proc for zid", zid = zid
 
 proc contains*[T, O](self: Zen[T, O], child: O): bool =
   privileged

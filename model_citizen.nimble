@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.12.0"
+version       = "0.12.1"
 author        = "Scott Wadden"
 description   = "Nothing for now"
 license       = "MIT"

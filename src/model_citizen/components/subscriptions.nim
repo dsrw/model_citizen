@@ -52,7 +52,9 @@ proc from_flatty*[T: ref RootObj](s: string, i: var int, value: var T) =
     if not is_nil:
       var info: ZenFlattyInfo
       s.from_flatty(i, info)
-      value = value.type()(flatty_ctx.objects[info.object_id])
+      # :(
+      if info.object_id in flatty_ctx.objects:
+        value = value.type()(flatty_ctx.objects[info.object_id])
   else:
     var is_registered: bool
     s.from_flatty(i, is_registered)
@@ -330,9 +332,8 @@ proc process_message(self: ZenContext, msg: Message) =
   elif msg.kind != Blank:
     if msg.object_id notin self.objects:
       error "missing object", object_id = msg.object_id
-      print msg
-
-      raise_assert \"object {msg.object_id} not in context. Kind: {msg.kind}"
+      # :(
+      return
     let obj = self.objects[msg.object_id]
     obj.change_receiver(obj, msg, op_ctx = OperationContext.init(source = msg, ctx = self))
 
@@ -344,14 +345,16 @@ proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
   log_defaults
   assert self.valid
 
-  assert zid in self.changed_callbacks
-
-  let callback = self.changed_callbacks[zid]
-  if zid notin self.paused_zids:
-    callback(@[Change.init(O, {Closed})])
-  self.ctx.close_procs.del(zid)
-  debug "removing close proc", zid
-  self.changed_callbacks.del(zid)
+  # :(
+  if zid in self.changed_callbacks:
+    let callback = self.changed_callbacks[zid]
+    if zid notin self.paused_zids:
+      callback(@[Change.init(O, {Closed})])
+    self.ctx.close_procs.del(zid)
+    debug "removing close proc", zid
+    self.changed_callbacks.del(zid)
+  else:
+    error "no change callback for zid", zid = zid
 
 proc track*[T, O](self: Zen[T, O],
     callback: proc(changes: seq[Change[O]]) {.gcsafe.}): ZID {.discardable.} =
