@@ -100,7 +100,7 @@ proc from_flatty*(bin: string, T: type, ctx: ZenContext): T =
 proc remaining*(self: Chan): int =
   private_access Chan
   private_access ChannelObj
-  let size = self.d[].size
+  let size = self.d[].slots
   result = size - self.peek
 
 proc full*(self: Chan): bool =

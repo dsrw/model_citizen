@@ -178,6 +178,10 @@ proc len*(self: Zen): int =
   assert self.valid
   self.tracked.len
 
+proc `+`*[O](self, other: ZenSet[O]): set[O] =
+  privileged
+  self.tracked + other.tracked
+
 proc `+=`*[T, O](self: Zen[T, O], value: T) =
   assert self.valid
   self.change(value, true, op_ctx = OperationContext())
