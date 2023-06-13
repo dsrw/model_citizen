@@ -48,7 +48,9 @@ type
   Change*[O] = ref object of BaseChange
     item*: O
 
-  Pair*[K, V] = tuple[key: K, value: V]
+  Pair[K, V] = object
+    key*: K
+    value*: V
 
   CountedRef = object
     obj*: ref RootObj

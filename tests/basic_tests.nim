@@ -660,6 +660,18 @@ proc run* =
       ctx1.recv
       check src.value == {One, Two}
 
+  test "seq of tuples":
+    local_and_remote:
+      let val = ("hello", 1)
+      let z = ZenSeq[val.type].init
+      ctx2.recv
+      z += val
+      ctx2.recv
+      z += val
+      ctx2.recv
+      let z2 = ctx2[z]
+      check z2.len == 2
+
   test "triggered by sync":
     type
       UnitFlags = enum

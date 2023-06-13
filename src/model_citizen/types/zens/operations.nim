@@ -104,6 +104,7 @@ proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   self.trigger_callbacks(added)
 
 proc del*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
+  privileged
   self.ctx.setup_op_ctx
   assert self.valid
   if value in self.tracked:
@@ -114,7 +115,8 @@ proc del*[K, V](self: ZenTable[K, V], key: K, op_ctx = OperationContext()) =
   self.ctx.setup_op_ctx
   assert self.valid
   if key in self.tracked:
-    remove(self, key, (key: key, value: self.tracked[key]), del, op_ctx)
+    remove(self, key, Pair[K, V](key: key, value: self.tracked[key]), del,
+        op_ctx)
 
 proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal,
     op_ctx = OperationContext()) =
@@ -135,7 +137,7 @@ proc delete*[T, O](self: Zen[T, O], value: O) =
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
   assert self.valid
   if key in self.tracked:
-    remove(self, key, (key: key, value: self.tracked[key]), delete,
+    remove(self, key, Pair[K, V](key: key, value: self.tracked[key]), delete,
         op_ctx = OperationContext())
 
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
@@ -271,10 +273,10 @@ iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
 iterator items*[K, V](self: ZenTable[K, V]): Pair[K, V] =
   privileged
   assert self.valid
-  for pair in self.tracked.pairs:
-    yield pair
+  for key, value in self.tracked.pairs:
+    yield Pair[K, V](key: key, value: value)
 
-iterator pairs*[K, V](self: ZenTable[K, V]): Pair[K, V] =
+iterator pairs*[K, V](self: ZenTable[K, V]): (K, V) =
   privileged
   assert self.valid
   for pair in self.tracked.pairs:

@@ -167,9 +167,12 @@ proc process_changes*[K, V](self: Zen[Table[K, V],
 
   private_access ZenObject
   let
-    tracked: seq[Pair[K, V]] = self.tracked.pairs.to_seq
-    initial: seq[Pair[K, V]] = initial_table.pairs.to_seq
-
+    tracked: seq[Pair[K, V]] = collect:
+      for key, value in self.tracked.pairs:
+        Pair[K, V](key: key, value: value)
+    initial: seq[Pair[K, V]] = collect:
+      for key, value in initial_table.pairs:
+        Pair[K, V](key: key, value: value)
     added = (tracked - initial).map_it:
       var changes = {Added}
       if it.key in initial_table: changes.incl Modified
@@ -270,11 +273,11 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
 
   if key in self.tracked and self.tracked[key] != value:
     let removed = Change.init(
-      Pair[K, V] (key, self.tracked[key]), {Removed, Modified})
+      Pair[K, V](key: key, value: self.tracked[key]), {Removed, Modified})
 
     var flags = {Added, Modified}
     if touch: flags.incl Touched
-    let added = Change.init(Pair[K, V] (key, value), flags)
+    let added = Change.init(Pair[K, V](key: key, value: value), flags)
     when value is Zen:
       if ?removed.item.value:
         self.link_or_unlink(removed, false)
@@ -288,13 +291,13 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     self.trigger_callbacks changes
 
   elif key in self.tracked and touch:
-    let changes = @[Change.init(Pair[K, V] (key, value), {Touched})]
+    let changes = @[Change.init(Pair[K, V](key: key, value: value), {Touched})]
 
     self.publish_changes changes, op_ctx
     self.trigger_callbacks changes
 
   elif key notin self.tracked:
-    let added = Change.init((key, value), {Added})
+    let added = Change.init(Pair[K, V](key: key, value: value), {Added})
     when value is Zen:
       self.link_or_unlink(added, true)
     self.tracked[key] = value

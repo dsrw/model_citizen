@@ -148,8 +148,9 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       assert object_id in self.ctx.objects
       let item = O(self.ctx.objects[object_id])
     elif O is Pair[any, Zen]:
-      type K = O.get(0)
-      type V = O.get(1)
+      # Workaround for compile issue. This should be `O`, not `O.default.type`.
+      type K = generic_params(O.default.type).get(0)
+      type V = generic_params(O.default.type).get(1)
       if msg.object_id notin self.ctx.objects:
         when defined(zen_trace):
           echo msg.trace
@@ -158,7 +159,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
       let value = V(self.ctx.objects[msg.change_object_id])
       {.gcsafe.}:
-        let item = (key: msg.obj.from_flatty(K, self.ctx), value: value)
+        let item = O(key: msg.obj.from_flatty(K, self.ctx), value: value)
     else:
       var item: O
       when item is ref RootObj:
@@ -296,7 +297,7 @@ proc init*(_: type Zen, K, V: type, flags = default_flags, ctx = ctx(),
   result = ZenTable[K, V](flags: flags).defaults(
       ctx, id, op_ctx)
 
-proc init*[K, V](t: type Zen, tracked: open_array[(K, V)],
+proc zen_init_private*[K, V](tracked: open_array[(K, V)],
     flags = default_flags, ctx = ctx(), id = "",
     op_ctx = OperationContext()): ZenTable[K, V] =
 
@@ -326,7 +327,10 @@ proc init_from*[T: object or ref](_: type T,
       dest = ctx[src]
 
 template `%`*(body: untyped): untyped =
-  Zen.init(body)
+  when compiles(zen_init_private(body)):
+    zen_init_private(body)
+  else:
+    Zen.init(body)
 
 macro system_init*(_: type Zen): untyped =
   result = new_stmt_list()
