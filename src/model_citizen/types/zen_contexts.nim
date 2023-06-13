@@ -20,7 +20,7 @@ proc len*(self: ZenContext): int =
   self.objects.len
 
 proc init*(_: type ZenContext,
-    name = "thread-" & $get_thread_id(), listen_address = "",
+    id = "thread-" & $get_thread_id(), listen_address = "",
     blocking_recv = false, chan_size = 100, buffer = false,
     max_recv_duration = Duration.default,
     min_recv_duration = Duration.default): ZenContext =
@@ -28,8 +28,8 @@ proc init*(_: type ZenContext,
   privileged
   log_scope:
     topics = "model_citizen"
-  debug "ZenContext initialized", name = name
-  result = ZenContext(name: name, blocking_recv: blocking_recv,
+  debug "ZenContext initialized", id
+  result = ZenContext(id: id, blocking_recv: blocking_recv,
       max_recv_duration: max_recv_duration,
       min_recv_duration: min_recv_duration, buffer: buffer)
 
@@ -50,7 +50,7 @@ proc init*(_: type ZenContext,
 
 proc thread_ctx*(_: type Zen): ZenContext =
   if active_ctx == nil:
-    active_ctx = ZenContext.init(name = "thread-" & $get_thread_id() )
+    active_ctx = ZenContext.init(id = "thread-" & $get_thread_id() )
   active_ctx
 
 proc thread_ctx*(_: type ZenBase): ZenContext =
@@ -60,7 +60,7 @@ proc `thread_ctx=`*(_: type Zen, ctx: ZenContext) =
   active_ctx = ctx
 
 proc `$`*(self: ZenContext): string =
-  \"ZenContext {self.name}"
+  \"ZenContext {self.id}"
 
 proc `[]`*[T, O](self: ZenContext, src: Zen[T, O]): Zen[T, O] =
   result = Zen[T, O](self.objects[src.id])

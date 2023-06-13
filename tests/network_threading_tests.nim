@@ -41,8 +41,8 @@ proc start_worker(ctx: ZenContext) {.thread.} =
 proc run* =
   test "reload":
     Zen.thread_ctx.clear
-    Zen.thread_ctx = ZenContext.init(name = "main")
-    var ctx = ZenContext.init(name = "worker", listen_address = "127.0.0.1")
+    Zen.thread_ctx = ZenContext.init(id = "main")
+    var ctx = ZenContext.init(id = "worker", listen_address = "127.0.0.1")
     Zen.thread_ctx.subscribe "127.0.0.1", callback = proc() =
       ctx.recv
 

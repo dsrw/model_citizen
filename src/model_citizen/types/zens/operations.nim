@@ -47,7 +47,7 @@ proc contains*[T, O](self: Zen[T, O], children: set[O] | seq[O]): bool =
 
 proc clear*[T, O](self: Zen[T, O]) =
   assert self.valid
-  mutate(OperationContext(source: self.ctx.name)):
+  mutate(OperationContext(source: self.ctx.id)):
     self.tracked = T.default
 
 proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
@@ -132,7 +132,7 @@ proc delete*[T, O](self: Zen[T, O], value: O) =
   assert self.valid
   if value in self.tracked:
     remove(self, value, value, delete,
-        op_ctx = OperationContext(source: [self.ctx.name].to_hash_set))
+        op_ctx = OperationContext(source: [self.ctx.id].to_hash_set))
 
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
   assert self.valid
@@ -262,7 +262,7 @@ proc destroy*[T, O](self: Zen[T, O], publish = true) =
   self.destroyed = true
   self.ctx.objects.del self.id
   if publish:
-    self.publish_destroy OperationContext(source: self.ctx.name)
+    self.publish_destroy OperationContext(source: self.ctx.id)
 
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   privileged

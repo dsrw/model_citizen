@@ -83,7 +83,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       ctx.send_msg(sub)
     if broadcast:
       for sub in ctx.subscribers:
-        if sub.ctx_name notin op_ctx.source:
+        if sub.ctx_id notin op_ctx.source:
           ctx.send_msg(sub)
     if ?ctx.reactor:
       ctx.reactor.tick

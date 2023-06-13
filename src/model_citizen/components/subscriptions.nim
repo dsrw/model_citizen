@@ -16,7 +16,7 @@ type ZenFlattyInfo = tuple[object_id: string, tid: int]
 privileged
 
 proc `$`*(self: Subscription): string =
-  \"{self.kind} subscription for {self.ctx_name}"
+  \"{self.kind} subscription for {self.ctx_id}"
 
 proc recv*(self: ZenContext,
     messages = int.high, max_duration = self.max_recv_duration, min_duration =
@@ -125,16 +125,16 @@ proc send*(self: ZenContext, sub: Subscription, msg: sink Message,
 
   log_defaults("model_citizen networking")
   when defined(zen_trace):
-    if sub.ctx_name notin self.last_msg_id:
-      self.last_msg_id[sub.ctx_name] = 1
+    if sub.ctx_id notin self.last_msg_id:
+      self.last_msg_id[sub.ctx_id] = 1
     else:
-      self.last_msg_id[sub.ctx_name] += 1
-    msg.id = self.last_msg_id[sub.ctx_name]
+      self.last_msg_id[sub.ctx_id] += 1
+    msg.id = self.last_msg_id[sub.ctx_id]
   debug "sending message", msg
 
   msg.source = op_ctx.source
   if msg.source == "":
-    msg.source = self.name
+    msg.source = self.id
 
   var msg = msg
   if sub.kind == Local and SyncLocal in flags:
@@ -154,7 +154,7 @@ proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
 
   debug "publishing destroy", zen_id = self.id
   for sub in self.ctx.subscribers:
-    if sub.ctx_name notin op_ctx.source:
+    if sub.ctx_id notin op_ctx.source:
       when defined(zen_trace):
         self.ctx.send(sub, Message(kind: Destroy, object_id: self.id,
             trace: \"{get_stack_trace()}\n\nop:\n{op_ctx.trace}"),
@@ -178,7 +178,7 @@ proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
   debug "publish_changes", ctx = self.ctx, op_ctx
   let id = self.id
   for sub in self.ctx.subscribers:
-    if sub.ctx_name in op_ctx.source:
+    if sub.ctx_id in op_ctx.source:
       continue
     for change in changes:
       if [Added, Removed, Created, Touched].any_it(it in change.changes):
@@ -208,14 +208,14 @@ proc add_subscriber*(self: ZenContext, sub: Subscription, push_all: bool,
   self.subscribers.add sub
   for id in self.objects.keys.to_seq.reversed:
     if id notin remote_objects or push_all:
-      debug "sending object on subscribe", from_ctx = self.name,
-          to_ctx = sub.ctx_name, zen_id = id
+      debug "sending object on subscribe", from_ctx = self.id,
+          to_ctx = sub.ctx_id, zen_id = id
 
       let zen = self.objects[id]
       zen.publish_create sub
     else:
       debug "not sending object because remote ctx already has it",
-          from_ctx = self.name, to_ctx = sub.ctx_name, zen_id = id
+          from_ctx = self.id, to_ctx = sub.ctx_id, zen_id = id
 
 proc unsubscribe*(self: ZenContext, sub: Subscription) =
   if sub.kind == Remote:
@@ -224,23 +224,23 @@ proc unsubscribe*(self: ZenContext, sub: Subscription) =
     # ???
     discard
   self.subscribers.delete self.subscribers.find(sub)
-  self.unsubscribed.add sub.ctx_name
+  self.unsubscribed.add sub.ctx_id
 
 proc process_value_initializers(self: ZenContext) =
-  debug "running deferred initializers", ctx = self.name
+  debug "running deferred initializers", ctx = self.id
   for initializer in self.value_initializers:
     initializer()
   self.value_initializers = @[]
 
 proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
   privileged
-  debug "local subscribe", ctx = self.name
+  debug "local subscribe", ctx = self.id
   var remote_objects: HashSet[string]
   for id in self.objects.keys:
     remote_objects.incl id
   self.subscribing = true
   ctx.add_subscriber(Subscription(kind: Local, chan: self.chan,
-      ctx_name: self.name), push_all = bidirectional, remote_objects)
+      ctx_id: self.id), push_all = bidirectional, remote_objects)
 
   self.recv(blocking = false, min_duration = Duration.default)
   self.subscribing = false
@@ -270,10 +270,10 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
     port = parts[1].parse_int
 
   let connection = self.reactor.connect(address, port)
-  self.send(Subscription(kind: Remote, ctx_name: "temp",
+  self.send(Subscription(kind: Remote, ctx_id: "temp",
       connection: connection), Message(kind: Subscribe))
 
-  var ctx_name = ""
+  var ctx_id = ""
   var received_objects: HashSet[string]
   var finished = false
   var remote_objects: HashSet[string]
@@ -288,7 +288,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
       if msg.data.starts_with("ACK:"):
         if bidirectional:
           let pieces = msg.data.split(":")
-          ctx_name = pieces[1]
+          ctx_id = pieces[1]
           for id in pieces[2..^1]:
             remote_objects.incl id
 
@@ -304,7 +304,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
 
   if bidirectional:
     let sub = Subscription(kind: Remote, connection: connection,
-        ctx_name: ctx_name)
+        ctx_id: ctx_id)
 
     self.add_subscriber(sub, push_all = false, remote_objects)
 
@@ -313,7 +313,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
 proc process_message(self: ZenContext, msg: Message) =
   privileged
   log_defaults
-  assert self.name notin msg.source
+  assert self.id notin msg.source
   # when defined(zen_trace):
   #   let src = self.name & "-" & msg.source
   #   if src in self.last_received_id:
@@ -436,12 +436,12 @@ proc recv*(self: ZenContext,
         if msg.kind == Subscribe:
           var remote: HashSet[string]
           self.add_subscriber(Subscription(kind: Remote,
-              connection: raw_msg.conn, ctx_name: msg.source),
+              connection: raw_msg.conn, ctx_id: msg.source),
               push_all = true, remote)
 
           var objects = self.objects.keys.to_seq.join(":")
 
-          self.reactor.send(raw_msg.conn, "ACK:" & self.name & ":" & objects)
+          self.reactor.send(raw_msg.conn, "ACK:" & self.id & ":" & objects)
           self.reactor.tick
           self.dead_connections &= self.reactor.dead_connections
           self.remote_messages &= self.reactor.messages

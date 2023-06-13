@@ -11,7 +11,7 @@ when chronicles_enabled == "on":
   template log_defaults*(log_topics = "model_citizen") =
     log_scope:
       topics = log_topics
-      thread_ctx = "ZenContext " & active_ctx.name
+      thread_ctx = "ZenContext " & active_ctx.id
 
 else:
   # Don't include chronicles unless it's specifically enabled.

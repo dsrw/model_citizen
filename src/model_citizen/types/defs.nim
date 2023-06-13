@@ -65,7 +65,7 @@ type
   SubscriptionKind = enum Blank, Local, Remote
 
   Subscription = ref object
-    ctx_name*: string
+    ctx_id*: string
     case kind*: SubscriptionKind
     of Local:
       chan*: Chan[Message]
@@ -76,13 +76,13 @@ type
       discard
 
   ZenContext* = ref object
+    id*: string
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]
     objects*: OrderedTable[string, ref ZenBase]
     ref_pool: Table[string, CountedRef]
     subscribers: seq[Subscription]
-    name*: string
     chan: Chan[Message]
     freeable_refs: Table[string, MonoTime]
     last_msg_id: Table[string, int]

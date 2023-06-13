@@ -14,7 +14,7 @@ proc init*[T](_: type Change, item: T,
 proc init*(_: type OperationContext,
     source: string | Message = "", ctx: ZenContext = nil): OperationContext =
 
-  let new_source = if ?ctx: ctx.name else: "??"
+  let new_source = if ?ctx: ctx.id else: "??"
   result = OperationContext()
   when source is Message and defined(zen_trace):
     result.source = \"{source.source} {new_source}"
@@ -36,7 +36,7 @@ template setup_op_ctx*(self: ZenContext) =
   let op_ctx = if ?op_ctx:
     op_ctx
   else:
-    OperationContext.init(source = self.name)
+    OperationContext.init(source = self.id)
 
 template privileged*() =
   private_access ZenContext
