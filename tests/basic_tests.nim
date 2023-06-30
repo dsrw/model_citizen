@@ -729,5 +729,5 @@ proc run* =
       check dest_change_id == 4
 
 when is_main_module:
-  Zen.system_init
+  Zen.bootstrap
   run()

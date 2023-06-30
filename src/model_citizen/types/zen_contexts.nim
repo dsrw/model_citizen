@@ -28,6 +28,7 @@ proc init*(_: type ZenContext,
   privileged
   log_scope:
     topics = "model_citizen"
+
   debug "ZenContext initialized", id
   result = ZenContext(id: id, blocking_recv: blocking_recv,
       max_recv_duration: max_recv_duration,
@@ -48,7 +49,7 @@ proc init*(_: type ZenContext,
     debug "listening"
     result.reactor = new_reactor(listen_address, port)
 
-proc thread_ctx*(_: type Zen): ZenContext =
+proc thread_ctx*(t: type Zen): ZenContext =
   if active_ctx == nil:
     active_ctx = ZenContext.init(id = "thread-" & $get_thread_id() )
   active_ctx

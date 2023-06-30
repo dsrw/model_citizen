@@ -1,7 +1,7 @@
 import std / [typetraits, macros, macrocache]
 import model_citizen / [core,  components / private / tracking]
 import model_citizen / types / [zen_contexts, private, defs {.all.}]
-import ./ validations
+import ./ [validations, operations]
 
 export new_ident_node
 
@@ -11,12 +11,48 @@ var initialized = false
 
 proc ctx(): ZenContext = Zen.thread_ctx
 
+proc create_initializer[T, O](self: Zen[T, O]) =
+  const zen_type_id = self.type.tid
+
+  static:
+    initializers.add quote do:
+      type_initializers[zen_type_id] = proc(bin: string, ctx: ZenContext,
+          id: string, flags: set[ZenFlags], op_ctx: OperationContext) =
+        mixin new_ident_node
+        if bin != "":
+          debug "creating received object", id
+          if not ctx.subscribing and id notin ctx:
+            var value = bin.from_flatty(T, ctx)
+            discard Zen.init(value, ctx = ctx, id = id,
+                flags = flags, op_ctx)
+          elif not ctx.subscribing:
+            debug "restoring received object", id
+            var value = bin.from_flatty(T, ctx)
+            let item = Zen[T, O](ctx[id])
+            `value=`(item, value, op_ctx = op_ctx)
+          else:
+            if id notin ctx:
+              discard Zen[T, O].init(ctx = ctx, id = id,
+                  flags = flags, op_ctx)
+
+            let initializer = proc() =
+              debug "deferred restore of received object value", id
+              {.gcsafe.}:
+                let value = bin.from_flatty(T, ctx)
+              let item = Zen[T, O](ctx[id])
+              `value=`(item, value, op_ctx = op_ctx)
+            ctx.value_initializers.add(initializer)
+
+        elif id notin ctx:
+          discard Zen[T, O].init(ctx = ctx, id = id, flags = flags, op_ctx)
+
 proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     op_ctx: OperationContext): Zen[T, O] =
 
   privileged
   log_defaults
 
+  create_initializer(self)
   self.id = if id == "":
     $self.type & "-" & generate_id()
   else:
@@ -36,40 +72,6 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
     template send_msg(src_ctx, sub) =
       const zen_type_id = self.type.tid
-
-      static:
-        type value_type = self.tracked.type
-        type zen_type = self.type
-        initializers.add quote do:
-          type_initializers[zen_type_id] = proc(bin: string, ctx: ZenContext,
-              id: string, flags: set[ZenFlags], op_ctx: OperationContext) =
-            mixin new_ident_node
-            if bin != "":
-              debug "creating received object", id
-              if not ctx.subscribing and id notin ctx:
-                var value = bin.from_flatty(`value_type`, ctx)
-                discard Zen.init(value, ctx = ctx, id = id,
-                    flags = flags, op_ctx)
-              elif not ctx.subscribing:
-                debug "restoring received object", id
-                var value = bin.from_flatty(`value_type`, ctx)
-                let item = `zen_type`(ctx[id])
-                item.`value=`(value, op_ctx = op_ctx)
-              else:
-                if id notin ctx:
-                  discard `zen_type`.init(ctx = ctx, id = id,
-                      flags = flags, op_ctx)
-
-                let initializer = proc() =
-                  debug "deferred restore of received object value", id
-                  {.gcsafe.}:
-                    let value = bin.from_flatty(`value_type`, ctx)
-                  let item = `zen_type`(ctx[id])
-                  item.`value=`(value, op_ctx = op_ctx)
-                ctx.value_initializers.add(initializer)
-
-            elif id notin ctx:
-              discard `zen_type`.init(ctx = ctx, id = id, flags = flags, op_ctx)
 
       var msg = Message(kind: Create, obj: bin, flags: flags,
            type_id: zen_type_id, object_id: id, source: op_ctx.source)
@@ -332,7 +334,7 @@ template `%`*(body: untyped): untyped =
   else:
     Zen.init(body)
 
-macro system_init*(_: type Zen): untyped =
+macro bootstrap*(_: type Zen): untyped =
   result = new_stmt_list()
   for initializer in initializers:
     result.add initializer

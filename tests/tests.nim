@@ -1,5 +1,5 @@
 import model_citizen, basic_tests, threading_tests, network_tests, publish_tests
-Zen.system_init
+Zen.bootstrap
 
 basic_tests.run()
 threading_tests.run()

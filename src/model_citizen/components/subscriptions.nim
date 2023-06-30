@@ -325,6 +325,11 @@ proc process_message(self: ZenContext, msg: Message) =
 
   if msg.kind == Create:
     {.gcsafe.}:
+      if msg.type_id notin type_initializers:
+        print msg
+        raise_assert \"No type initializer for type {msg.type_id}"
+
+    {.gcsafe.}: # :(
       let fn = type_initializers[msg.type_id]
       fn(msg.obj, self, msg.object_id, msg.flags,
           OperationContext.init(source = msg, ctx = self))

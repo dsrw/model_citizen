@@ -1,4 +1,4 @@
-import std / [typetraits, macros, macrocache]
+import std / [typetraits, macros, macrocache, tables]
 import model_citizen / [core, components / private / tracking]
 import model_citizen / types / [zen_contexts, defs {.all.}, private]
 import ./ validations
@@ -9,7 +9,7 @@ proc untrack_all*[T, O](self: Zen[T, O]) =
   private_access ZenContext
   assert self.valid
   self.trigger_callbacks(@[Change.init(O, {Closed})])
-  for zid, _ in self.changed_callbacks:
+  for zid, _ in self.changed_callbacks.pairs:
     self.ctx.close_procs.del(zid)
 
   for zid in self.bound_zids:

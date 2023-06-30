@@ -127,5 +127,5 @@ proc run* =
     check d.value == "world"
 
 when is_main_module:
-  Zen.system_init
+  Zen.bootstrap
   run()

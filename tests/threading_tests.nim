@@ -67,5 +67,5 @@ proc run* =
     ctx.close
 
 when is_main_module:
-  Zen.system_init
+  Zen.bootstrap
   run()
