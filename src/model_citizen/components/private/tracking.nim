@@ -200,8 +200,10 @@ template mutate_and_touch*(touch, op_ctx, body: untyped) =
     let initial_values = self.tracked
   else:
     let initial_values = self.tracked.dup
-  body
-  self.process_changes(initial_values, op_ctx, touch)
+
+  {.line.}:
+    body
+    self.process_changes(initial_values, op_ctx, touch)
 
 template mutate*(op_ctx: OperationContext, body: untyped) =
   private_access ZenObject
@@ -212,8 +214,10 @@ template mutate*(op_ctx: OperationContext, body: untyped) =
     let initial_values = self.tracked
   else:
     let initial_values = self.tracked.dup
-  body
-  self.process_changes(initial_values, op_ctx)
+
+  {.line.}:
+    body
+    self.process_changes(initial_values, op_ctx)
 
 proc change*[T, O](self: Zen[T, O], items: T, add: bool,
     op_ctx: OperationContext) =
