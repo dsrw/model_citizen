@@ -672,6 +672,23 @@ proc run* =
       let z2 = ctx2[z]
       check z2.len == 2
 
+  test "pointer to ref":
+    type
+      RefType = ref object of RootObj
+        id: string
+
+    local_and_remote:
+      let a = RefType(id: "a")
+      var src = ZenValue[ptr RefType].init
+
+      ctx2.recv
+      var dest = ZenValue[ptr RefType](ctx2[src])
+
+      src.value = unsafe_addr(a)
+      ctx2.recv
+
+      check dest.value[].id == "a"
+
   test "triggered by sync":
     type
       UnitFlags = enum

@@ -82,7 +82,7 @@ proc from_flatty*(s: string, i: var int, p: proc) =
   discard
 
 proc to_flatty*(s: var string, p: ptr) =
-  discard
+  s.to_flatty(cast[int](p))
 
 proc to_flatty*(s: var string, p: pointer) =
   discard
@@ -90,8 +90,10 @@ proc to_flatty*(s: var string, p: pointer) =
 proc from_flatty*(s: string, i: var int, p: pointer) =
   discard
 
-proc from_flatty*(s: string, i: var int, p: ptr) =
-  discard
+proc from_flatty*(s: string, i: var int, p: var ptr) =
+  var val: int
+  s.from_flatty(i, val)
+  p = cast[p.type](val)
 
 proc from_flatty*(bin: string, T: type, ctx: ZenContext): T =
   flatty_ctx = ctx
@@ -321,7 +323,7 @@ proc process_message(self: ZenContext, msg: Message) =
   #       raise_assert &"src={src} msg.id={msg.id} " &
   #           &"last={self.last_received_id[src]}. Should be msg.id - 1"
   #   self.last_received_id[src] = msg.id
-  #   debug "receiving", msg, topics = "networking"
+  debug "receiving", msg, topics = "networking"
 
   if msg.kind == Create:
     {.gcsafe.}:
