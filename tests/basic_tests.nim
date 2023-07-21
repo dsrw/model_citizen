@@ -165,14 +165,14 @@ proc run* =
   test "set_literal":
     type TestFlags = enum
       Flag1, Flag2, Flag3
-    var a = %{Flag1, Flag3}
+    var a = ~{Flag1, Flag3}
 
   test "table literals":
     var a = Zen.init(Table[int, ZenSeq[string]])
     a.track proc(changes, _: auto) {.gcsafe.} =
       discard
-    a[1] = %["nim"]
-    a[5] = %["vin", "rw"]
+    a[1] = ~["nim"]
+    a[5] = ~["vin", "rw"]
     a.clear
 
   test "touch table":
@@ -190,17 +190,17 @@ proc run* =
 
   test "nested":
     var a = ZenTable[int, ZenSeq[int]].init
-    a[1] = %[1, 2]
+    a[1] = ~[1, 2]
     a[1] += 3
 
   test "nested_2":
-    var a = %{1: %[1]}
-    a[1] = %[1, 2]
+    var a = ~{1: ~[1]}
+    a[1] = ~[1, 2]
     a[1] += 3
 
   test "nested_changes":
     type Flags = enum Flag1, Flag2
-    let buffers = %{1: %{1: %[%{Flag1}, %{Flag2}]}}
+    let buffers = ~{1: ~{1: ~[~{Flag1}, ~{Flag2}]}}
     var id = buffers.count_changes
 
     # we're watching the top level object. Any child change will
@@ -210,8 +210,8 @@ proc run* =
     1.changes: buffers[1][1][0] += Flag2
     0.changes: buffers[1][1][0] += Flag1 # already there. No change
     1.changes: buffers[1][1][0] -= {Flag1, Flag2}
-    1.changes: buffers[1][1] += %{Flag1, Flag2}
-    1.changes: buffers[1][1] = %[%{Flag1}]
+    1.changes: buffers[1][1] += ~{Flag1, Flag2}
+    1.changes: buffers[1][1] = ~[~{Flag1}]
 
     # unlink
     buffers[1][1][0].clear
@@ -224,7 +224,7 @@ proc run* =
     2.changes: buffers[1] = nil # Added and Removed changes
     buffers.untrack(id)
 
-    buffers[1] = %{1: %[%{Flag1}]}
+    buffers[1] = ~{1: ~[~{Flag1}]}
     id = buffers[1][1][0].count_changes
     1.changes: buffers[1][1][0] += {Flag1, Flag2}
     0.changes: buffers[1][1][0] += {Flag1, Flag2}
@@ -334,11 +334,11 @@ proc run* =
       a.touch 11
       a.touch 12
 
-    let b = %4
+    let b = ~4
     b.assert_changes {Removed: 4, Added: 11}:
       b.value = 11
 
-    let c = %"enu"
+    let c = ~"enu"
     c.assert_changes {Removed: "enu", Added: "ENU"}:
       c.value = "ENU"
 
@@ -348,7 +348,7 @@ proc run* =
 
     let (r1, r2, r3) = (ARef(id: 1), ARef(id:2), ARef(id:3))
 
-    let a = %r1
+    let a = ~r1
     a.assert_changes {Removed: r1, Added: r2, Removed: r2, Added: r3}:
       a.value = r2
       a.value = r3

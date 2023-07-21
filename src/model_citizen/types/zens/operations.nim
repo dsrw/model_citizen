@@ -264,6 +264,16 @@ proc destroy*[T, O](self: Zen[T, O], publish = true) =
   if publish:
     self.publish_destroy OperationContext(source: self.ctx.id)
 
+template `~.`*[T, O](self: Zen[T, O], call: untyped): untyped =
+  value(self).call
+
+proc `~=`*[T, O](self: Zen[T, O], value: O) =
+  self.value = value
+
+proc `~`*[T](self: ZenValue[T]): T = self.value
+
+proc `?~`*[T](self: ZenValue[T]): bool = ? ~self
+
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   privileged
   assert self.valid

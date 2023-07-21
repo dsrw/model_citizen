@@ -328,7 +328,7 @@ proc init_from*[T: object or ref](_: type T,
     when dest is Zen:
       dest = ctx[src]
 
-template `%`*(body: untyped): untyped =
+template `~`*(body: untyped): untyped =
   when compiles(zen_init_private(body)):
     zen_init_private(body)
   else:
