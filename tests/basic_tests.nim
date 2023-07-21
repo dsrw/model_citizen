@@ -689,6 +689,34 @@ proc run* =
 
       check dest.value[].id == "a"
 
+  test "object with registered ref":
+    type
+      RefType2 = ref object of RootObj
+        id: string
+
+      RefType3 = ref object of RefType2
+
+      Query = object
+        target: RefType2
+        other: string
+
+    Zen.register_type(RefType3)
+
+    local_and_remote:
+      let a = Query(target: RefType3(id: "b"), other: "hello")
+      var src = ZenValue[Query].init
+
+      ctx2.recv
+      var dest = ZenValue[Query](ctx2[src])
+
+      src.value = a
+      ctx2.recv
+
+      check:
+        src.value.target.id == dest.value.target.id
+        src.value.other == dest.value.other
+        src.value.target != dest.value.target
+
   test "triggered by sync":
     type
       UnitFlags = enum
