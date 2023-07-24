@@ -264,11 +264,14 @@ proc destroy*[T, O](self: Zen[T, O], publish = true) =
   if publish:
     self.publish_destroy OperationContext(source: self.ctx.id)
 
-template `~.`*[T, O](self: Zen[T, O], call: untyped): untyped =
-  value(self).call
+proc `~=`*[T, O](a: Zen[T, O], b: T) =
+  `value=`(a, b)
 
-proc `~=`*[T, O](self: Zen[T, O], value: O) =
-  self.value = value
+proc `~==`*[T, O](a: Zen[T, O], b: T): bool =
+  value(a) == b
+
+proc `~==~`*[T, O](a: Zen[T, O], b: Zen[T, O]): bool =
+  value(a) == value(b)
 
 proc `~`*[T](self: ZenValue[T]): T = self.value
 

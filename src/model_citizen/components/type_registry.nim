@@ -1,4 +1,4 @@
-import std / [locks, intsets, macros]
+import std / [locks, intsets, macros, typetraits, strutils]
 import model_citizen / core
 import model_citizen / types / [private, defs {.all.}]
 import ./ private / global_state
@@ -28,7 +28,7 @@ proc lookup_type*(obj: ref RootObj, registered_type: var RegisteredType): bool =
   if not result:
     debug "type not registered", type_name = obj.base_type
 
-proc register_type*(_: type Zen, typ: type) =
+proc register_type(typ: type) =
   log_defaults
   let key = typ.type_id
 
@@ -65,8 +65,69 @@ proc register_type*(_: type Zen, typ: type) =
     result = self
 
   with_lock:
-    global_type_registry[][key] = RegisteredType(stringify: stringify, parse: parse,
-        tid: key)
+    global_type_registry[][key] = RegisteredType(stringify: stringify,
+        parse: parse, tid: key)
+
+proc value_type[T, O](self: Zen[T, O]): type O = O
+
+proc build_change_handler(self, field, body: NimNode): NimNode =
+  let zen_prop = ident("zen_" & field.str_val)
+  result = quote do:
+    `self`.`zen_prop`.changes:
+      `body`
+
+macro build_accessors(T: type, obj: object, public: bool): untyped =
+  result = new_stmt_list()
+  let type_impl = obj.get_type_impl
+  var names: seq[string]
+
+  for def in type_impl[2]:
+    assert def.kind == nnk_ident_defs
+    let name = def[0].str_val
+    if name.starts_with("zen"):
+      var getter_name = if name.starts_with("zen_"):
+        name[4..^1]
+      else:
+        name[3..^1]
+      getter_name = getter_name[0..0].to_lower & getter_name[1..^1]
+      names.add getter_name
+      let getter = ident(getter_name)
+      let setter = ident(getter_name & "=")
+      let field = ident(name)
+
+      let return_type = def[1]
+
+      result.add quote do:
+        type V = `return_type`.default.value.type
+        when `public`:
+          proc `getter`*(self: `T`): V = self.`field`.value
+          proc `setter`*(self: `T`, value: V) =
+            self.`field`.value = value
+        else:
+          proc `getter`(self: `T`): V = self.`field`.value
+          proc `setter`(self: `T`, value: V) =
+            self.`field`.value = value
+
+  if names.len > 0:
+    result.add quote do:
+      macro changes(self: `T`, field: untyped, body: untyped): untyped =
+        field.expect_kind(nnk_ident)
+        let field_name = field.str_val
+        let names = `names`
+        if field_name notin names:
+          macros.error("Invalid zen field `" & field_name & "` Options are: " &
+              $names, field)
+
+        result = build_change_handler(self, field, body)
+
+template build_accessors(T: type[ref object], public: bool): untyped =
+  build_accessors(T, T.default[], public)
+
+macro register*(_: type Zen, typ: type, public = true): untyped =
+  result = new_stmt_list()
+  result.add quote do:
+    register_type(`typ`)
+    build_accessors(`typ`, `public`)
 
 proc ref_id*[T: ref RootObj](value: T): string {.inline.} =
   $value.type_id & ":" & $value.id
@@ -131,3 +192,12 @@ proc free*[T: ref RootObj](self: ZenContext, value: T) =
   assert self.ref_pool[id].count == 0
   self.ref_pool.del(id)
   self.freeable_refs.del(id)
+
+when is_main_module:
+  import ./ subscriptions
+  type
+    Unit = ref object of RootObj
+      id*: string
+      name*: string
+
+  Zen.register(Unit)

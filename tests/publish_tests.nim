@@ -15,8 +15,8 @@ proc run* =
     Bot = ref object of Unit
       bot_stuff: string
 
-  Zen.register_type(Build)
-  Zen.register_type(Bot)
+  Zen.register(Build)
+  Zen.register(Bot)
 
   test "object publish inheritance":
     var
