@@ -78,35 +78,49 @@ proc build_change_handler(self, field, body: NimNode): NimNode =
 
 macro build_accessors(T: type, obj: object, public: bool): untyped =
   result = new_stmt_list()
-  let type_impl = obj.get_type_impl
+  var type_sym = obj
+  # echo type_impl.tree_repr
   var names: seq[string]
 
-  for def in type_impl[2]:
-    assert def.kind == nnk_ident_defs
-    let name = def[0].str_val
-    if name.starts_with("zen"):
-      var getter_name = if name.starts_with("zen_"):
-        name[4..^1]
-      else:
-        name[3..^1]
-      getter_name = getter_name[0..0].to_lower & getter_name[1..^1]
-      names.add getter_name
-      let getter = ident(getter_name)
-      let setter = ident(getter_name & "=")
-      let field = ident(name)
+  while type_sym.kind != nnk_empty:
+    let type_impl = type_sym.get_type_impl
 
-      let return_type = def[1]
+    # get the object type for refs
+    if type_impl.kind == nnk_ref_ty:
+      type_sym = type_impl[0]
+      continue
 
-      result.add quote do:
-        type V = `return_type`.default.value.type
-        when `public`:
-          proc `getter`*(self: `T`): V = self.`field`.value
-          proc `setter`*(self: `T`, value: V) =
-            self.`field`.value = value
+    for def in type_impl[2]:
+      assert def.kind == nnk_ident_defs
+      let name = def[0].str_val
+      if name.starts_with("zen"):
+        var getter_name = if name.starts_with("zen_"):
+          name[4..^1]
         else:
-          proc `getter`(self: `T`): V = self.`field`.value
-          proc `setter`(self: `T`, value: V) =
-            self.`field`.value = value
+          name[3..^1]
+        getter_name = getter_name[0..0].to_lower & getter_name[1..^1]
+        names.add getter_name
+        let getter = ident(getter_name)
+        let setter = ident(getter_name & "=")
+        let field = ident(name)
+
+        let return_type = def[1]
+
+        result.add quote do:
+          type V = `return_type`.default.value.type
+          when `public`:
+            proc `getter`*(self: `T`): V = self.`field`.value
+            proc `setter`*(self: `T`, value: V) =
+              self.`field`.value = value
+          else:
+            proc `getter`(self: `T`): V = self.`field`.value
+            proc `setter`(self: `T`, value: V) =
+              self.`field`.value = value
+
+    type_sym = if type_impl[1].kind == nnk_of_inherit:
+      type_impl[1][0]
+    else:
+      new_empty_node()
 
   if names.len > 0:
     result.add quote do:

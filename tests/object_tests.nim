@@ -5,9 +5,11 @@ import model_citizen
 proc run* =
   test "generate properties":
     type ZenString = ZenValue[string]
-    type Boop = ref object of RootObj
+    type Beep = ref object of RootObj
       id*: string
       zen_name: ZenValue[string]
+
+    type Boop = ref object of Beep
       zenState: ZenString
       messages*: ZenSeq[string]
 
