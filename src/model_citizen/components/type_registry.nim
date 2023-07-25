@@ -1,10 +1,14 @@
 import std / [locks, intsets, macros, typetraits, strutils]
+import std / macrocache except value
 import model_citizen / core
 import model_citizen / types / [private, defs {.all.}]
 import ./ private / global_state
 
 template deref*(o: ref): untyped = o[]
 template deref*(o: not ref): untyped = o
+
+const created_procs = CacheSeq"created_procs"
+const change_fields = CacheTable"change_fields"
 
 proc lookup_type*(key: int, registered_type: var RegisteredType): bool =
   if key in local_type_registry:
@@ -83,16 +87,27 @@ proc is_zen(node: NimNode): bool =
 
   if info.kind == nnk_ref_ty:
     return is_zen(info[0])
-  elif info.kind == nnk_object_ty:
+  elif info.kind == nnk_object_ty and info[1].kind == nnk_of_inherit:
     return is_zen(info[1][0])
-  elif info.kind == nnk_bracket_expr:
+  elif info.kind == nnk_bracket_expr and not node.eq_ident(info[0]):
     return is_zen(info[0])
+
+proc contains(self: CacheSeq, value: NimNode): bool =
+  for val in self:
+    if val == value:
+      return true
+
+proc contains(self: CacheTable, key: string): bool =
+  for k, v in self.pairs:
+    if k == key:
+      return true
 
 macro build_accessors(T: type, obj: object, public: bool): untyped =
   result = new_stmt_list()
   var type_sym = obj
-  # echo type_impl.tree_repr
   var names: seq[string]
+  var self_type = T
+  var base_type = T
 
   while type_sym.kind != nnk_empty:
     let type_impl = type_sym.get_type_impl
@@ -100,33 +115,41 @@ macro build_accessors(T: type, obj: object, public: bool): untyped =
     # get the object type for refs
     if type_impl.kind == nnk_ref_ty:
       type_sym = type_impl[0]
+      self_type = type_impl
       continue
 
     for def in type_impl[2]:
       assert def.kind == nnk_ident_defs
       let name = def[0].str_val
-      if not def[0].is_exported and def[1].is_zen:
-        var getter_name = if name.starts_with("zen_"):
-          name[4..^1]
-        else:
-          name[3..^1]
-        getter_name = getter_name[0..0].to_lower & getter_name[1..^1]
+      if (not def[0].is_exported) and is_zen(def[1]):
+        base_type = self_type
         names.add name
         let sym = ident(name)
         let setter = ident(name & "=")
 
-        let return_type = def[1]
+        let value_type = def[1]
+        echo "type_sym: ", type_sym.tree_repr
+        echo "type_impl: ", type_impl.tree_repr
 
-        result.add quote do:
-          type V = `return_type`.default.value.type
-          when `public`:
-            proc `sym`*(self: `T`): V = self.`sym`.value
-            proc `setter`*(self: `T`, value: V) =
-              self.`sym`.value = value
-          else:
-            proc `sym`(self: `T`): V = self.`sym`.value
-            proc `setter`(self: `T`, value: V) =
-              self.`sym`.value = value
+        let id = ident(self_type.repr & " " & name)
+        var create_accessors = true
+        for proc_id in created_procs:
+          echo "id: ", id.str_val, " proc_id: ", proc_id.str_val
+          if proc_id.str_val == id.str_val:
+            create_accessors = false
+            break
+        if create_accessors:
+          created_procs.incl(id)
+          result.add quote("@") do:
+            type V = value(`@value_type`.default).type
+            when `@public`:
+              proc `@sym`*(self: `@self_type`): V = value(self.`@sym`)
+              proc `@setter`*(self: `@self_type`, value: V) =
+                self.`@sym`.value = value
+            else:
+              proc `@sym`(self: `@self_type`): V = value(self.`@sym`)
+              proc `@setter`(self: `@self_type`, value: V) =
+                self.`@sym`.value = value
 
     type_sym = if type_impl[1].kind == nnk_of_inherit:
       type_impl[1][0]
@@ -134,25 +157,37 @@ macro build_accessors(T: type, obj: object, public: bool): untyped =
       new_empty_node()
 
   if names.len > 0:
-    result.add quote do:
-      macro changes(self: `T`, field: untyped, body: untyped): untyped =
-        field.expect_kind(nnk_ident)
-        let field_name = field.str_val
-        let names = `names`
-        if field_name notin names:
-          macros.error("Invalid zen field `" & field_name & "` Options are: " &
-              $names, field)
+    let base_type_id = base_type.repr
+    if base_type_id notin change_fields:
+      change_fields[base_type_id] = new_lit(names.join(","))
+      result.add quote do:
+        macro changes(self: `base_type`, field: untyped, body: untyped): untyped =
+          field.expect_kind(nnk_ident)
+          let field_name = field.str_val
+          let names = change_fields[`base_type_id`].str_val.split(",")
+          if field_name notin names:
+            macros.error("Invalid zen field `" & field_name & "` Options are: " &
+                $names, field)
 
-        result = build_change_handler(self, field, body)
+          result = build_change_handler(self, field, body)
+    else:
+      let old_names = change_fields[base_type_id].str_val.split(",")
+      for name in old_names:
+        if name notin names:
+          names.add name
+      change_fields[base_type_id].str_val = names.join(",")
 
-template build_accessors(T: type[ref object], public: bool): untyped =
+  echo "*****"
+  echo result.repr
+
+template build_accessors*(_: type Zen, T: type[ref object], public: bool = true): untyped =
   build_accessors(T, T.default[], public)
 
 macro register*(_: type Zen, typ: type, public = true): untyped =
   result = new_stmt_list()
   result.add quote do:
     register_type(`typ`)
-    build_accessors(`typ`, `public`)
+    Zen.build_accessors(`typ`, `public`)
 
 proc ref_id*[T: ref RootObj](value: T): string {.inline.} =
   $value.type_id & ":" & $value.id

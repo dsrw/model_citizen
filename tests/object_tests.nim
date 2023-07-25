@@ -13,20 +13,54 @@ proc run* =
       state: ZenString
       messages*: ZenSeq[string]
 
+    type Bloop = ref object of Beep
+      age: ZenValue[int]
+
     Zen.register(Boop, false)
-    var b = Boop().init_zen_fields
+    Zen.register(Bloop, false)
+    var boop = Boop().init_zen_fields
+    var bloop = Bloop().init_zen_fields
 
     var counter = 0
-    b.changes(name):
-      if added:
-        inc counter
-    b.changes(state):
+
+    boop.changes(name):
       if added:
         inc counter
 
-    `name=`(b, "scott")
-    check name(b) == "scott"
-    check counter == 1
+    boop.changes(state):
+      if added:
+        inc counter
+
+    bloop.changes(name):
+      if added:
+        inc counter
+
+    bloop.changes(age):
+      if added:
+        inc counter
+
+    `name=`(boop, "scott")
+    check name(boop) == "scott"
+    `age=`(bloop, 99)
+    check age(bloop) == 99
+
+    check counter == 2
+
+    var beep = Beep(boop)
+    `name=`(beep, "claire")
+
+    beep = Beep(bloop)
+    `name=`(beep, "marie")
+
+    check counter == 4
+
+    beep.changes(name):
+      if added:
+        inc counter
+
+    `name=`(beep, "jeff")
+
+    check counter == 6
 
 when is_main_module:
   Zen.bootstrap

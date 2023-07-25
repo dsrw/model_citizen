@@ -425,7 +425,7 @@ proc run* =
         thing1: ZenValue[Thing]
         thing2: ZenValue[Thing]
 
-    Zen.register(Thing)
+    Zen.register(Thing, false)
 
     local_and_remote:
       var s1 = ZenValue[string].init(ctx = ctx1)
@@ -524,7 +524,7 @@ proc run* =
         code: ZenValue[string]
         id: int
 
-    Zen.register(Unit)
+    Zen.register(Unit, false)
     local_and_remote:
       var u1 = Unit(id: 1)
       var u2 = Unit(id: 2)
@@ -544,7 +544,7 @@ proc run* =
         id: string
         edits: ZenTable[int, Table[string, string]]
 
-    Zen.register(Shared)
+    Zen.register(Shared, false)
 
     local_and_remote:
       var container: ZenValue[Shared]
@@ -595,7 +595,7 @@ proc run* =
       RefType = ref object of RootObj
         id: string
 
-    Zen.register(RefType)
+    Zen.register(RefType, false)
 
     local_and_remote:
       var src = ZenSeq[RefType].init
@@ -700,7 +700,7 @@ proc run* =
         target: RefType2
         other: string
 
-    Zen.register(RefType3)
+    Zen.register(RefType3, false)
 
     local_and_remote:
       let a = Query(target: RefType3(id: "b"), other: "hello")
@@ -731,7 +731,7 @@ proc run* =
         units: ZenSeq[SyncUnit]
         active: SyncUnit
 
-    Zen.register(SyncUnit)
+    Zen.register(SyncUnit, false)
 
     local_and_remote:
       var src = State().init_zen_fields
