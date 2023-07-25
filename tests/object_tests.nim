@@ -7,10 +7,10 @@ proc run* =
     type ZenString = ZenValue[string]
     type Beep = ref object of RootObj
       id*: string
-      zen_name: ZenValue[string]
+      name: ZenValue[string]
 
     type Boop = ref object of Beep
-      zenState: ZenString
+      state: ZenString
       messages*: ZenSeq[string]
 
     Zen.register(Boop, false)
@@ -24,7 +24,8 @@ proc run* =
       if added:
         inc counter
 
-    b.name = "scott"
+    `name=`(b, "scott")
+    check name(b) == "scott"
     check counter == 1
 
 when is_main_module:

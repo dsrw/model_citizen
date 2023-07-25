@@ -71,10 +71,22 @@ proc register_type(typ: type) =
 proc value_type[T, O](self: Zen[T, O]): type O = O
 
 proc build_change_handler(self, field, body: NimNode): NimNode =
-  let zen_prop = ident("zen_" & field.str_val)
   result = quote do:
-    `self`.`zen_prop`.changes:
+    `self`.`field`.changes:
       `body`
+
+proc is_zen(node: NimNode): bool =
+  if node.kind == nnk_sym and node.str_val == "ZenBase":
+    return true
+
+  let info = node.get_type_impl
+
+  if info.kind == nnk_ref_ty:
+    return is_zen(info[0])
+  elif info.kind == nnk_object_ty:
+    return is_zen(info[1][0])
+  elif info.kind == nnk_bracket_expr:
+    return is_zen(info[0])
 
 macro build_accessors(T: type, obj: object, public: bool): untyped =
   result = new_stmt_list()
@@ -93,29 +105,28 @@ macro build_accessors(T: type, obj: object, public: bool): untyped =
     for def in type_impl[2]:
       assert def.kind == nnk_ident_defs
       let name = def[0].str_val
-      if name.starts_with("zen"):
+      if not def[0].is_exported and def[1].is_zen:
         var getter_name = if name.starts_with("zen_"):
           name[4..^1]
         else:
           name[3..^1]
         getter_name = getter_name[0..0].to_lower & getter_name[1..^1]
-        names.add getter_name
-        let getter = ident(getter_name)
-        let setter = ident(getter_name & "=")
-        let field = ident(name)
+        names.add name
+        let sym = ident(name)
+        let setter = ident(name & "=")
 
         let return_type = def[1]
 
         result.add quote do:
           type V = `return_type`.default.value.type
           when `public`:
-            proc `getter`*(self: `T`): V = self.`field`.value
+            proc `sym`*(self: `T`): V = self.`sym`.value
             proc `setter`*(self: `T`, value: V) =
-              self.`field`.value = value
+              self.`sym`.value = value
           else:
-            proc `getter`(self: `T`): V = self.`field`.value
+            proc `sym`(self: `T`): V = self.`sym`.value
             proc `setter`(self: `T`, value: V) =
-              self.`field`.value = value
+              self.`sym`.value = value
 
     type_sym = if type_impl[1].kind == nnk_of_inherit:
       type_impl[1][0]
