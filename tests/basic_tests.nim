@@ -78,7 +78,7 @@ proc run* =
       TestFlags = enum
         Flag1, Flag2, Flag3, Flag4
 
-    var s = Zen.init({Flag1, Flag2})
+    var s = ~{Flag1, Flag2}
 
     check:
       Flag2 in s
@@ -138,7 +138,7 @@ proc run* =
 
   test "seqs":
     var
-      s = Zen.init(seq[string])
+      s = ~seq[string]
       added_items {.threadvar.}: seq[string]
       removed_items {.threadvar.}: seq[string]
 
@@ -185,7 +185,7 @@ proc run* =
     a.untrack_all
 
   test "primitive_table":
-    var a = Zen.init(Table[int, int])
+    var a = ~Table[int, int]
     a[1] = 2
 
   test "nested":
@@ -266,8 +266,8 @@ proc run* =
   test "init from type":
     type TestFlag = enum
       Flag1, Flag2
-    var a = Zen.init(seq[int])
-    var b = Zen.init(set[TestFlag])
+    var a = ~seq[int]
+    var b = ~set[TestFlag]
     check:
       a is Zen[seq[int], int]
       b is Zen[set[TestFlag], TestFlag]
@@ -285,8 +285,8 @@ proc run* =
 
     proc init(_: type Unit, id = 0, flags = default_flags): Unit =
       result = Unit(id: id)
-      result.units = Zen.init(seq[Unit], flags)
-      result.flags = Zen.init(set[UnitFlags], flags)
+      result.units = ~(seq[Unit], flags)
+      result.flags = ~(set[UnitFlags], flags)
 
     var a = Unit.init
     var id = a.units.count_changes
@@ -494,7 +494,7 @@ proc run* =
       ctx3.subscribe(ctx2, bidirectional = false)
       Zen.thread_ctx = ctx1
       check ctx3.len == ctx1.len
-      src.values += Zen.init("", ctx = ctx1)
+      src.values += ~("", ctx = ctx1)
       check ctx1.len != ctx2.len and ctx1.len != ctx3.len
       ctx2.recv
       check ctx1.len == ctx2.len and ctx1.len != ctx3.len
@@ -505,7 +505,7 @@ proc run* =
 
   test "delete":
     local_and_remote:
-      var a = Zen.init("", ctx = ctx1)
+      var a = ~("", ctx = ctx1)
       check ctx1.len == 1
       ctx2.recv
       check ctx1.len == 1

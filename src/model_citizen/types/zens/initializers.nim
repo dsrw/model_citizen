@@ -328,11 +328,19 @@ proc init_from*[T: object or ref](_: type T,
     when dest is Zen:
       dest = ctx[src]
 
-template `~`*(body: untyped): untyped =
-  when compiles(zen_init_private(body)):
-    zen_init_private(body)
-  else:
-    Zen.init(body)
+macro `~`*(body: untyped): untyped =
+  var args = body
+  if body.kind == nnk_tuple_constr:
+    args = new_nim_node(nnk_arg_list, body)
+    body.copy_children_to(args)
+
+  result = quote do:
+    when compiles(value(`args`)):
+      value(`args`)
+    elif compiles(zen_init_private(`args`)):
+      zen_init_private(`args`)
+    else:
+      Zen.init(`args`)
 
 macro bootstrap*(_: type Zen): untyped =
   result = new_stmt_list()

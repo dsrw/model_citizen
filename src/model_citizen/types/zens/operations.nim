@@ -273,8 +273,6 @@ proc `~==`*[T, O](a: Zen[T, O], b: T): bool =
 proc `~==~`*[T, O](a: Zen[T, O], b: Zen[T, O]): bool =
   value(a) == value(b)
 
-proc `~`*[T](self: ZenValue[T]): T = self.value
-
 proc `?~`*[T](self: ZenValue[T]): bool = ? ~self
 
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
