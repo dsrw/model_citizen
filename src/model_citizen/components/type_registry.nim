@@ -93,6 +93,20 @@ proc is_zen(node: NimNode): bool =
 proc export_routine(self: NimNode) =
   self[0] = new_nim_node(nnk_postfix).add(ident("*")).add(self[0])
 
+proc get_value_type(self: NimNode): NimNode =
+  if self.kind == nnk_sym:
+    let def = self.get_impl
+    if def.len >= 3 and def[2].kind == nnk_bracket_expr:
+      if def[2][0].kind == nnk_sym and def[2][0].str_val == "ZenValue":
+        return def[2][1]
+
+  elif self.kind == nnk_bracket_expr:
+    if self[0].str_val.starts_with("Zen"):
+      return self[1]
+
+  error "get_value_type doesn't know how to handle type:\n\n" &
+      self.tree_repr & "\n\nThis is probably a model_citizen bug.", self
+
 macro build_accessors(T: type, public: bool): untyped =
   result = new_stmt_list()
   var type_sym = T
@@ -128,15 +142,15 @@ macro build_accessors(T: type, public: bool): untyped =
             name[0..^7]
           else:
             name[0..^6]
-
           names.add getter_name
-          let sym = ident(name)
-          let getter = ident(getter_name)
-          let setter = ident(getter_name & "=")
 
-          let value_type = type_def
+          let
+            sym = ident(name)
+            getter = ident(getter_name)
+            setter = ident(getter_name & "=")
+            id = ident(type_sym.repr & " " & name)
+            value_type = get_value_type(type_def)
 
-          let id = ident(type_sym.repr & " " & name)
           var create_accessors = true
 
           for proc_id in created_procs:
@@ -148,14 +162,13 @@ macro build_accessors(T: type, public: bool): untyped =
             created_procs.incl(id)
 
             var accessors = quote do:
-              type V = value(`value_type`.default).type
-              proc `getter`(self: `type_sym`): V = value(self.`sym`)
-              proc `setter`(self: `type_sym`, value: V) =
+              proc `getter`(self: `type_sym`): `value_type` = value(self.`sym`)
+              proc `setter`(self: `type_sym`, value: `value_type`) =
                 self.`sym`.value = value
 
             if public.bool_val:
+              accessors[0].export_routine
               accessors[1].export_routine
-              accessors[2].export_routine
             result.add accessors
 
     type_sym = if type_impl[2][0][1].kind == nnk_of_inherit:
