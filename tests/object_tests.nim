@@ -1,41 +1,28 @@
 import std / [unittest]
 import pkg / [pretty, chronicles]
 import model_citizen
+import ./ object_tests_types
 
 proc run* =
   test "generate properties":
-    type ZenString = ZenValue[string]
-    type Beep = ref object of RootObj
-      id*: string
-      name: ZenValue[string]
-
-    type Boop = ref object of Beep
-      state: ZenString
-      messages*: ZenSeq[string]
-
-    type Bloop = ref object of Beep
-      age: ZenValue[int]
-
-    Zen.register(Boop, false)
-    Zen.register(Bloop, false)
     var boop = Boop().init_zen_fields
     var bloop = Bloop().init_zen_fields
 
     var counter = 0
 
-    boop.changes(name):
+    boop.name_value.changes:
       if added:
         inc counter
 
-    boop.changes(state):
+    boop.state_value.changes:
       if added:
         inc counter
 
-    bloop.changes(name):
+    bloop.name_value.changes:
       if added:
         inc counter
 
-    bloop.changes(age):
+    bloop.age_value.changes:
       if added:
         inc counter
 
@@ -54,11 +41,11 @@ proc run* =
 
     check counter == 4
 
-    beep.changes(name):
+    beep.name_value.changes:
       if added:
         inc counter
 
-    `name=`(beep, "jeff")
+    `name=`(beep, "cal")
 
     check counter == 6
 
