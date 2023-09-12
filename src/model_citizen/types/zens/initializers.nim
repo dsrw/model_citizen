@@ -132,7 +132,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     elif Removed in change.changes:
       Unassign
     else:
-      raise_assert "Can't build message for changes " & $change.changes
+      fail "Can't build message for changes " & $change.changes
     result = msg
 
   self.change_receiver = proc(self: ref ZenBase, msg: Message,
@@ -156,7 +156,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       if msg.object_id notin self.ctx.objects:
         when defined(zen_trace):
           echo msg.trace
-        raise_assert "object not in context " & msg.object_id &
+        fail "object not in context " & msg.object_id &
             " " & $Zen[T, O]
 
       let value = V(self.ctx.objects[msg.change_object_id])
@@ -177,7 +177,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
                 debug "item found (not restored)", item = item.type.name,
                     ref_id = item.ref_id
             else:
-              raise_assert \"Type for ref_id {msg.ref_id} not registered"
+              fail \"Type for ref_id {msg.ref_id} not registered"
           else:
             {.gcsafe.}:
               item = msg.obj.from_flatty(O, self.ctx)
@@ -193,7 +193,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     elif msg.kind == Touch:
       self.touch(item, op_ctx = op_ctx)
     else:
-      raise_assert "Can't handle message " & $msg.kind
+      fail "Can't handle message " & $msg.kind
 
   assert self.ctx == nil
   self.ctx = ctx

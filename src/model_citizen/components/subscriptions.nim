@@ -329,7 +329,7 @@ proc process_message(self: ZenContext, msg: Message) =
     {.gcsafe.}:
       if msg.type_id notin type_initializers:
         print msg
-        raise_assert \"No type initializer for type {msg.type_id}"
+        fail \"No type initializer for type {msg.type_id}"
 
     {.gcsafe.}: # :(
       let fn = type_initializers[msg.type_id]
@@ -345,7 +345,7 @@ proc process_message(self: ZenContext, msg: Message) =
     obj.change_receiver(obj, msg, op_ctx = OperationContext.init(source = msg, ctx = self))
 
   else:
-    raise_assert "Can't recv a blank message"
+    fail "Can't recv a blank message"
 
 proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
   privileged

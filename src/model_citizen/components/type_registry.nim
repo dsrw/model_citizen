@@ -243,9 +243,9 @@ proc free*[T: ref RootObj](self: ZenContext, value: T) =
   if id notin self.freeable_refs:
     if id in self.ref_pool:
       let count = self.ref_pool[id].count
-      raise_assert \"ref `{id}` has {count} references. Can't free."
+      fail \"ref `{id}` has {count} references. Can't free."
     else:
-      raise_assert \"unable to find ref_id `{id}` in freeable refs. Double free?"
+      fail \"unable to find ref_id `{id}` in freeable refs. Double free?"
 
   assert self.ref_pool[id].count == 0
   self.ref_pool.del(id)
