@@ -221,7 +221,7 @@ proc init*(_: type Zen,
   ctx.setup_op_ctx
   result = Zen[T, T](flags: flags).defaults(ctx, id, op_ctx)
 
-proc init*[T: ref | object | SomeOrdinal | SomeNumber | string | ptr](
+proc init*[T: ref | object | tuple | SomeOrdinal | SomeNumber | string | ptr](
     _: type Zen, tracked: T, flags = default_flags, ctx = ctx(),
     id = "", op_ctx = OperationContext()): Zen[T, T] =
 
