@@ -25,6 +25,7 @@ type
 
   OperationContext = object
     source*: string
+    zen_type*: string
     when defined(zen_trace):
       trace*: string
 
@@ -32,8 +33,7 @@ type
     kind*: MessageKind
     object_id*: string
     change_object_id*: string
-    type_id*: int
-    ref_id*: int
+    ext_id*: int
     obj*: string
     source*: string
     flags*: set[ZenFlags]
@@ -77,6 +77,11 @@ type
 
   ZenContext* = ref object
     id*: string
+    uncompressed_size*: int
+    compressed_size*: int
+    obj_size*: int
+    largest_obj*: int
+    echo_at*: Monotime
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]

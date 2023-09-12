@@ -52,6 +52,9 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   privileged
   log_defaults
 
+  var op_ctx = op_ctx
+  op_ctx.zen_type = $self.type
+
   create_initializer(self)
   self.id = if id == "":
     $self.type & "-" & generate_id()
@@ -74,7 +77,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       const zen_type_id = self.type.tid
 
       var msg = Message(kind: Create, obj: bin, flags: flags,
-           type_id: zen_type_id, object_id: id, source: op_ctx.source)
+           ext_id: zen_type_id, object_id: id, source: op_ctx.source)
 
       when defined(zen_trace):
         msg.trace = get_stack_trace()
@@ -95,7 +98,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   self.build_message = proc(self: ref ZenBase, change: BaseChange, id,
       trace: string): Message =
 
-    var msg = Message(object_id: id, type_id: Zen[T, O].tid)
+    var msg = Message(object_id: id, ext_id: Zen[T, O].tid)
     when defined(zen_trace):
       msg.trace = trace
     assert Added in change.changes or Removed in change.changes or
@@ -115,7 +118,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
           if ?change.item:
             var registered_type: RegisteredType
             if change.item.lookup_type(registered_type):
-              msg.ref_id = registered_type.tid
+              msg.ext_id = registered_type.tid
               item = registered_type.stringify(change.item)
               break registered
             else:
@@ -166,9 +169,9 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       var item: O
       when item is ref RootObj:
         if msg.obj != "":
-          if msg.ref_id > 0:
+          if msg.ext_id > 0:
             var registered_type: RegisteredType
-            if lookup_type(msg.ref_id, registered_type):
+            if lookup_type(msg.ext_id, registered_type):
               item = type(item)(registered_type.parse(self.ctx, msg.obj))
               if not self.ctx.find_ref(item):
                 debug "item restored (not found)", item = item.type.name,
@@ -177,7 +180,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
                 debug "item found (not restored)", item = item.type.name,
                     ref_id = item.ref_id
             else:
-              raise_assert \"Type for ref_id {msg.ref_id} not registered"
+              raise_assert \"Type for ref_id {msg.ext_id} not registered"
           else:
             {.gcsafe.}:
               item = msg.obj.from_flatty(O, self.ctx)

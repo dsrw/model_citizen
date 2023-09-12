@@ -1,4 +1,5 @@
-import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks]
+import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks,
+    monotimes]
 import pkg / threading / channels {.all.}
 import pkg / [flatty, supersnappy]
 import model_citizen / core
@@ -138,6 +139,24 @@ proc send*(self: ZenContext, sub: Subscription, msg: sink Message,
   if msg.source == "":
     msg.source = self.id
 
+  template blarg =
+    let m1 = msg.to_flatty
+    let m2 = m1.compress
+    self.reactor.send(sub.connection, m2)
+
+    self.uncompressed_size += m1.len
+    self.compressed_size += m2.len
+    let largest_obj = msg.obj.len
+    self.obj_size += largest_obj
+    if largest_obj > self.largest_obj:
+      self.largest_obj = largest_obj
+      echo "new largest obj: ", largest_obj, " ", op_ctx.zen_type
+
+    let now = get_mono_time()
+    if now > self.echo_at:
+      echo \"ctx {self.id} sent {self.uncompressed_size} uncompressed. {self.compressed_size} compressed. {self.obj_size} objs"
+      self.echo_at = now + 5.seconds
+
   var msg = msg
   if sub.kind == Local and SyncLocal in flags:
     sub.send_or_buffer(msg, self.buffer)
@@ -145,10 +164,10 @@ proc send*(self: ZenContext, sub: Subscription, msg: sink Message,
     msg.obj = ""
     sub.send_or_buffer(msg, self.buffer)
   elif sub.kind == Remote and SyncRemote in flags:
-    self.reactor.send(sub.connection, msg.to_flatty.compress)
+    blarg
   elif sub.kind == Remote and SyncAllNoOverwrite in flags:
     msg.obj = ""
-    self.reactor.send(sub.connection, msg.to_flatty.compress)
+    blarg
 
 proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
   privileged
@@ -327,12 +346,12 @@ proc process_message(self: ZenContext, msg: Message) =
 
   if msg.kind == Create:
     {.gcsafe.}:
-      if msg.type_id notin type_initializers:
+      if msg.ext_id notin type_initializers:
         print msg
-        raise_assert \"No type initializer for type {msg.type_id}"
+        raise_assert \"No type initializer for type {msg.ext_id}"
 
     {.gcsafe.}: # :(
-      let fn = type_initializers[msg.type_id]
+      let fn = type_initializers[msg.ext_id]
       fn(msg.obj, self, msg.object_id, msg.flags,
           OperationContext.init(source = msg, ctx = self))
 

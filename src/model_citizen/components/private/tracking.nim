@@ -65,9 +65,9 @@ proc link_child*[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
     link(child)
 
 proc unlink*(self: Zen) =
-
   private_access ZenBase
   log_defaults
+
   debug "unlinking", id = self.id, zid = self.link_zid
   self.untrack(self.link_zid)
   self.link_zid = 0

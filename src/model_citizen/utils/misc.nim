@@ -1,4 +1,4 @@
-import std / [options, sets, macrocache, strformat, strutils]
+import std / [options, sets, macrocache, strformat, strutils, times, monotimes]
 import pkg / [nanoid]
 
 # Logic
@@ -48,3 +48,6 @@ func tid*(T: type): int =
   static:
     inc type_id
   id
+
+proc seconds*(s: float): Duration {.inline.} =
+  init_duration(milliseconds = int(s * 1000))
