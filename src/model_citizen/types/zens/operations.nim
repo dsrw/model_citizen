@@ -98,7 +98,7 @@ proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   let added = @[Change.init(value, {Added})]
   self.link_or_unlink(added, true)
   when O isnot Zen and O is ref:
-    self.ctx.ref_count(added)
+    self.ctx.ref_count(added, self.id)
 
   self.publish_changes(added, op_ctx)
   self.trigger_callbacks(added)

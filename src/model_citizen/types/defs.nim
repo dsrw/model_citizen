@@ -50,7 +50,7 @@ type
 
   CountedRef = object
     obj*: ref RootObj
-    count*: int
+    references*: HashSet[string]
 
   RegisteredType = object
     tid*: int

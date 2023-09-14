@@ -190,7 +190,7 @@ macro register*(_: type Zen, typ: type, public = true): untyped =
 proc ref_id*[T: ref RootObj](value: T): string {.inline.} =
   $value.type_id & ":" & $value.id
 
-proc ref_count*[O](self: ZenContext, changes: seq[Change[O]]) =
+proc ref_count*[O](self: ZenContext, changes: seq[Change[O]], zen_id: string) =
   privileged
   log_defaults
 
@@ -202,12 +202,12 @@ proc ref_count*[O](self: ZenContext, changes: seq[Change[O]]) =
       if id notin self.ref_pool:
         debug "saving ref", id
         self.ref_pool[id] = CountedRef()
-      inc self.ref_pool[id].count
+      self.ref_pool[id].references.incl(zen_id)
       self.ref_pool[id].obj = change.item
     if Removed in change.changes:
       assert id in self.ref_pool
-      dec self.ref_pool[id].count
-      if self.ref_pool[id].count == 0:
+      self.ref_pool[id].references.excl(zen_id)
+      if self.ref_pool[id].references.card == 0:
         self.freeable_refs[id] = get_mono_time() + init_duration(seconds = 10)
 
 proc find_ref*[T](self: ZenContext, value: var T): bool =
@@ -224,11 +224,10 @@ proc free_refs*(self: ZenContext) =
 
   var to_remove: seq[string]
   for id, free_at in self.freeable_refs:
-    assert self.ref_pool[id].count >= 0
-    if self.ref_pool[id].count == 0 and free_at < get_mono_time():
+    if self.ref_pool[id].references.card == 0 and free_at < get_mono_time():
       self.ref_pool.del(id)
       to_remove.add(id)
-    elif self.ref_pool[id].count > 0:
+    elif self.ref_pool[id].references.card > 0:
       to_remove.add(id)
   for id in to_remove:
     debug "freeing ref", id
@@ -242,12 +241,13 @@ proc free*[T: ref RootObj](self: ZenContext, value: T) =
 
   if id notin self.freeable_refs:
     if id in self.ref_pool:
-      let count = self.ref_pool[id].count
-      fail \"ref `{id}` has {count} references. Can't free."
+      let count = self.ref_pool[id].references.card
+      let references = self.ref_pool[id].references.to_seq.join(", ")
+      fail \"ref `{id}` has {count} references from {references}. Can't free."
     else:
       fail \"unable to find ref_id `{id}` in freeable refs. Double free?"
 
-  assert self.ref_pool[id].count == 0
+  assert self.ref_pool[id].references.card == 0
   self.ref_pool.del(id)
   self.freeable_refs.del(id)
 

@@ -619,13 +619,13 @@ proc run* =
       ctx2.recv
       check obj.ref_id in ctx2.ref_pool
       check obj.ref_id in ctx2.freeable_refs
-      check ctx2.ref_pool[obj.ref_id].count == 0
+      check ctx2.ref_pool[obj.ref_id].references.card == 0
 
       src += obj
       ctx2.recv
       check obj.ref_id in ctx2.ref_pool
       check obj.ref_id in ctx2.freeable_refs
-      check ctx2.ref_pool[obj.ref_id].count == 1
+      check ctx2.ref_pool[obj.ref_id].references.card == 1
       check dest[0] == orig_dest_obj
       src -= obj
       ctx2.recv

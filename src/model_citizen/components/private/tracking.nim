@@ -125,7 +125,7 @@ proc process_changes*[T](self: Zen[T, T], initial: sink T,
       Change.init(self.tracked, add_flags)
     ]
     when T isnot Zen and T is ref:
-      self.ctx.ref_count(changes)
+      self.ctx.ref_count(changes, self.id)
 
     self.publish_changes(changes, op_ctx)
     self.trigger_callbacks(changes)
@@ -133,7 +133,7 @@ proc process_changes*[T](self: Zen[T, T], initial: sink T,
   elif touch:
     let changes = @[Change.init(self.tracked, {Touched})]
     when T isnot Zen and T is ref:
-      self.ctx.ref_count(changes)
+      self.ctx.ref_count(changes, self.id)
 
     self.publish_changes(changes, op_ctx)
     self.trigger_callbacks(changes)
@@ -157,7 +157,7 @@ proc process_changes*[T: seq | set, O](self: Zen[T, O],
 
   let changes = removed & added & touched
   when O isnot Zen and O is ref:
-    self.ctx.ref_count(changes)
+    self.ctx.ref_count(changes, self.id)
 
   self.publish_changes(changes, op_ctx)
   self.trigger_callbacks(changes)
@@ -187,7 +187,7 @@ proc process_changes*[K, V](self: Zen[Table[K, V],
   self.link_or_unlink(added, true)
   let changes = removed & added
   when V isnot Zen and V is ref:
-    self.ctx.ref_count(changes)
+    self.ctx.ref_count(changes, self.id)
 
   self.publish_changes(changes, op_ctx)
   self.trigger_callbacks(changes)
@@ -289,7 +289,7 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     self.tracked[key] = value
     let changes = @[removed, added]
     when V isnot Zen and V is ref:
-      self.ctx.ref_count changes
+      self.ctx.ref_count(changes, self.id)
 
     self.publish_changes changes, op_ctx
     self.trigger_callbacks changes
@@ -307,7 +307,7 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     self.tracked[key] = value
     let changes = @[added]
     when V isnot Zen and V is ref:
-      self.ctx.ref_count changes
+      self.ctx.ref_count(changes, self.id)
 
     self.publish_changes changes, op_ctx
     self.trigger_callbacks changes
@@ -323,7 +323,7 @@ template remove*(self, key, item_exp, fun, op_ctx) =
   let removed = @[Change.init(obj, {Removed})]
   self.link_or_unlink(removed, false)
   when obj isnot Zen and obj is ref:
-    self.ctx.ref_count(removed)
+    self.ctx.ref_count(removed, self.id)
 
   self.publish_changes(removed, op_ctx)
   self.trigger_callbacks(removed)
