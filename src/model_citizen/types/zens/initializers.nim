@@ -159,6 +159,9 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
         fail "object not in context " & msg.object_id &
             " " & $Zen[T, O]
 
+      if msg.change_object_id notin self.ctx.objects and msg.kind == Unassign:
+        debug "can't find ", obj = msg.change_object_id
+        return
       let value = V(self.ctx.objects[msg.change_object_id])
       {.gcsafe.}:
         let item = O(key: msg.obj.from_flatty(K, self.ctx), value: value)

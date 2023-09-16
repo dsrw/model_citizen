@@ -460,8 +460,9 @@ proc recv*(self: ZenContext,
       break
 
 template changes*[T, O](self: Zen[T, O], body) =
-  self.track proc(changes: seq[Change[O]], zid {.inject.}: ZID) {.gcsafe.} =
-    self.pause(zid):
+  let zen = self
+  zen.track proc(changes: seq[Change[O]], zid {.inject.}: ZID) {.gcsafe.} =
+    zen.pause(zid):
       for change {.inject.} in changes:
         template added: bool = Added in change.changes
         template added(obj: O): bool = change.item == obj and added()
