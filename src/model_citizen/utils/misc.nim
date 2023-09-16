@@ -33,6 +33,11 @@ type
 template fail*(msg: string) =
   raise ZenAssertionError.new_exception(msg)
 
+template ensure*(condition: bool, msg = "enu assert error") =
+  {.line.}:
+    if not condition:
+      raise ZenAssertionError.new_exception(msg)
+
 proc init*[T: Exception](kind: type[T], message: string, parent:
     ref Exception = nil): ref Exception =
 

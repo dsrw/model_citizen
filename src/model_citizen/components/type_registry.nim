@@ -36,7 +36,7 @@ proc register_type(typ: type) =
   let key = typ.type_id
 
   with_lock:
-    assert key notin global_type_registry[], "Type already registered"
+    ensure key notin global_type_registry[], "Type already registered"
 
   let stringify = func(self: ref RootObj): string =
     let self = typ(self)
@@ -120,7 +120,7 @@ macro build_accessors(T: type, public: bool): untyped =
     let type_impl = type_sym.get_impl
 
     for def in type_impl[2][0][2]:
-      assert def.kind == nnk_ident_defs
+      ensure def.kind == nnk_ident_defs
 
       var def_count = def.len - 1
       if def[^1].kind == nnk_empty:
@@ -205,7 +205,7 @@ proc ref_count*[O](self: ZenContext, changes: seq[Change[O]], zen_id: string) =
       self.ref_pool[id].references.incl(zen_id)
       self.ref_pool[id].obj = change.item
     if Removed in change.changes:
-      assert id in self.ref_pool
+      ensure id in self.ref_pool
       self.ref_pool[id].references.excl(zen_id)
       if self.ref_pool[id].references.card == 0:
         self.freeable_refs[id] = get_mono_time() + init_duration(seconds = 10)
@@ -219,8 +219,17 @@ proc find_ref*[T](self: ZenContext, value: var T): bool =
       value = T(self.ref_pool[id].obj)
       result = true
 
+when defined(dump_zen_objects):
+  import std / [os, algorithm]
+
 proc free_refs*(self: ZenContext) =
   privileged
+
+  when defined(dump_zen_objects):
+    let now = get_mono_time()
+    if now > self.dump_at:
+      write_file(self.id, self.objects.keys.to_seq.sorted.join("\n"))
+      self.dump_at = now + init_duration(seconds = 10)
 
   var to_remove: seq[string]
   for id, free_at in self.freeable_refs:
@@ -247,7 +256,7 @@ proc free*[T: ref RootObj](self: ZenContext, value: T) =
     else:
       fail \"unable to find ref_id `{id}` in freeable refs. Double free?"
 
-  assert self.ref_pool[id].references.card == 0
+  ensure self.ref_pool[id].references.card == 0
   self.ref_pool.del(id)
   self.freeable_refs.del(id)
 

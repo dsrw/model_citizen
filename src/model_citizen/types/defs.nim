@@ -93,6 +93,8 @@ type
     value_initializers*: seq[proc() {.gcsafe.}]
     dead_connections: seq[Connection]
     unsubscribed*: seq[string]
+    when defined(dump_zen_objects):
+      dump_at*: MonoTime
 
   ZenBase* = object of RootObj
     id*: string

@@ -273,7 +273,7 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     op_ctx: OperationContext) =
 
   private_access ZenObject
-  assert self.valid
+  ensure self.valid
 
   if key in self.tracked and self.tracked[key] != value:
     let removed = Change.init(
@@ -314,7 +314,7 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
 
 proc len*[T, O](self: Zen[T, O]): int =
   privileged
-  assert self.valid
+  ensure self.valid
   self.tracked.len
 
 template remove*(self, key, item_exp, fun, op_ctx) =
