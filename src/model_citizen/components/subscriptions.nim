@@ -18,7 +18,7 @@ privileged
 proc `$`*(self: Subscription): string =
   \"{self.kind} subscription for {self.ctx_id}"
 
-proc recv*(self: ZenContext,
+proc boop*(self: ZenContext,
     messages = int.high, max_duration = self.max_recv_duration, min_duration =
     self.min_recv_duration, blocking = self.blocking_recv,
     poll = true) {.gcsafe.}
@@ -132,7 +132,12 @@ proc send*(self: ZenContext, sub: Subscription, msg: sink Message,
     else:
       self.last_msg_id[sub.ctx_id] += 1
     msg.id = self.last_msg_id[sub.ctx_id]
+
+  when defined(dump_zen_objects):
+    self.counts[msg.kind] += 1
+
   debug "sending message", msg
+
 
   msg.source = op_ctx.source
   if msg.source == "":
@@ -244,7 +249,7 @@ proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
   ctx.add_subscriber(Subscription(kind: Local, chan: self.chan,
       ctx_id: self.id), push_all = bidirectional, remote_objects)
 
-  self.recv(blocking = false, min_duration = Duration.default)
+  self.boop(blocking = false, min_duration = Duration.default)
   self.subscribing = false
   self.process_value_initializers
 
@@ -300,7 +305,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
     if callback != nil:
       callback()
 
-  self.recv(poll = false)
+  self.boop(poll = false)
   self.subscribing = false
   self.process_value_initializers
 
@@ -310,7 +315,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
 
     self.add_subscriber(sub, push_all = false, remote_objects)
 
-  self.recv(blocking = false)
+  self.boop(blocking = false)
 
 proc process_message(self: ZenContext, msg: Message) =
   privileged
@@ -392,7 +397,7 @@ proc track*[T, O](self: Zen[T, O],
 proc untrack_on_destroy*(self: ref ZenBase, zid: ZID) =
   self.bound_zids.incl(zid)
 
-proc recv*(self: ZenContext,
+proc boop*(self: ZenContext,
     messages = int.high, max_duration = self.max_recv_duration, min_duration =
     self.min_recv_duration, blocking = self.blocking_recv,
     poll = true) {.gcsafe.} =

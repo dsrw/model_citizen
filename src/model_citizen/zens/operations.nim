@@ -25,7 +25,7 @@ proc untrack*(ctx: ZenContext, zid: ZID) =
     debug "deleting close proc", zid
     ctx.close_procs.del(zid)
   else:
-    error "No close proc for zid", zid = zid
+    debug "No close proc for zid", zid = zid
 
 proc contains*[T, O](self: Zen[T, O], child: O): bool =
   privileged

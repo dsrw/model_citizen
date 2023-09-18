@@ -18,7 +18,7 @@ proc run* =
     ctx2.subscribe(ctx1)
     ctx3.subscribe(ctx4)
     ctx3.subscribe "127.0.0.1", callback = proc() =
-      ctx2.recv(blocking = false)
+      ctx2.boop(blocking = false)
 
     var
       a = ZenValue[string].init(id = "test1", ctx = ctx1)
@@ -26,14 +26,14 @@ proc run* =
       c = ZenValue[string].init(id = "test1", ctx = ctx3)
       d = ZenValue[string].init(id = "test1", ctx = ctx4)
 
-    ctx1.recv
-    ctx2.recv
+    ctx1.boop
+    ctx2.boop
 
     a.value = "set"
-    ctx1.recv
-    ctx2.recv
-    ctx3.recv
-    ctx4.recv
+    ctx1.boop
+    ctx2.boop
+    ctx3.boop
+    ctx4.boop
     check d.value == "set"
 
     ctx2.close
@@ -61,16 +61,16 @@ proc run* =
     ctx2.subscribe(ctx1)
     ctx3.subscribe(ctx4)
 
-    ctx1.recv
+    ctx1.boop
 
     check a.value == @["a1", "a2"]
     check b.value == @["a1", "a2"]
 
-    ctx4.recv
+    ctx4.boop
     ctx3.subscribe "127.0.0.1", callback = proc() =
-      ctx2.recv(blocking = false)
+      ctx2.boop(blocking = false)
 
-    ctx4.recv
+    ctx4.boop
 
     check count == 2
     check a.len == 2
@@ -109,16 +109,16 @@ proc run* =
     ctx2.subscribe(ctx1)
     ctx3.subscribe(ctx4)
 
-    ctx1.recv
+    ctx1.boop
 
     check a.value == @["a1", "a2"]
     check b.value == @["a1", "a2"]
 
-    ctx4.recv
+    ctx4.boop
     ctx3.subscribe "127.0.0.1", callback = proc() =
-      ctx2.recv(blocking = false)
+      ctx2.boop(blocking = false)
 
-    ctx4.recv
+    ctx4.boop
 
     check count == 2
     check a.len == 2

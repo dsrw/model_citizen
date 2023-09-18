@@ -229,6 +229,10 @@ proc free_refs*(self: ZenContext) =
     let now = get_mono_time()
     if now > self.dump_at:
       write_file(self.id, self.objects.keys.to_seq.sorted.join("\n"))
+      var counts = ""
+      for kind in MessageKind:
+        counts &= $kind & ": " & $self.counts[kind] & "\n"
+      write_file("counts", counts)
       self.dump_at = now + init_duration(seconds = 10)
 
   var to_remove: seq[string]

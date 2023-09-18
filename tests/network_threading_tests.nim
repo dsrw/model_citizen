@@ -36,7 +36,7 @@ proc start_worker(ctx: ZenContext) {.thread.} =
 
   global_cond.signal()
   while working:
-    ctx.recv
+    ctx.boop
 
 proc run* =
   test "reload":
@@ -44,10 +44,10 @@ proc run* =
     Zen.thread_ctx = ZenContext.init(id = "main")
     var ctx = ZenContext.init(id = "worker", listen_address = "127.0.0.1")
     Zen.thread_ctx.subscribe "127.0.0.1", callback = proc() =
-      ctx.recv
+      ctx.boop
 
     var a = Zen.init("", id = "t1")
-    ctx.recv(blocking = true)
+    ctx.boop(blocking = true)
     global_lock.acquire()
     worker_thread.create_thread(start_worker, ctx)
     global_cond.wait(global_lock)
@@ -71,7 +71,7 @@ proc run* =
           a.value = "scott"
 
     while working:
-      Zen.thread_ctx.recv
+      Zen.thread_ctx.boop
     worker_thread.join_thread
     ctx.close
 

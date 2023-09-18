@@ -95,6 +95,7 @@ type
     unsubscribed*: seq[string]
     when defined(dump_zen_objects):
       dump_at*: MonoTime
+      counts*: array[MessageKind, int]
 
   ZenBase* = object of RootObj
     id*: string

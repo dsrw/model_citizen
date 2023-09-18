@@ -5,7 +5,8 @@
 --define:"chronicles_enabled=on"
 --define:"chronicles_sinks=textblocks[stdout]"
 --define:"chronicles_log_level=INFO"
---define:zen_trace
+--define:"zen_trace"
+# --define:"dump_zen_objects"
 
 --experimental:"overloadable_enums"
 
