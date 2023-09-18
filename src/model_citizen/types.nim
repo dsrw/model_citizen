@@ -10,7 +10,7 @@ type
     Created, Added, Removed, Modified, Touched, Closed
 
   MessageKind = enum
-    Blank, Create, Destroy, Assign, Unassign, Touch, Subscribe
+    Blank, Create, Destroy, Assign, Unassign, Touch, Subscribe, Packed
 
   BaseChange* = ref object of RootObj
     changes*: set[ChangeKind]
@@ -23,6 +23,12 @@ type
     source*: string
     when defined(zen_trace):
       trace*: string
+
+  PackedMessageOperation* = tuple
+    kind: MessageKind
+    ref_id: int
+    change_object_id: string
+    obj: string
 
   Message = object
     kind*: MessageKind

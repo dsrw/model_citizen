@@ -269,11 +269,13 @@ proc unassign*[K, V](self: ZenTable[K, V], pair: Pair[K, V],
 proc unassign*[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
   discard
 
-proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
-    op_ctx: OperationContext) =
+proc build_changes[K, V](self: ZenTable[K, V], key: K, value: V,
+    touch: bool): seq[Change[Pair[K, V]]] =
 
   private_access ZenObject
   ensure self.valid
+
+  var changes: seq[Change[Pair[K, V]]]
 
   if key in self.tracked and self.tracked[key] != value:
     let removed = Change.init(
@@ -287,30 +289,46 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
         self.link_or_unlink(removed, false)
       self.link_or_unlink(added, true)
     self.tracked[key] = value
-    let changes = @[removed, added]
-    when V isnot Zen and V is ref:
-      self.ctx.ref_count(changes, self.id)
-
-    self.publish_changes changes, op_ctx
-    self.trigger_callbacks changes
+    changes = @[removed, added]
 
   elif key in self.tracked and touch:
-    let changes = @[Change.init(Pair[K, V](key: key, value: value), {Touched})]
-
-    self.publish_changes changes, op_ctx
-    self.trigger_callbacks changes
+    changes.add Change.init(Pair[K, V](key: key, value: value), {Touched})
 
   elif key notin self.tracked:
     let added = Change.init(Pair[K, V](key: key, value: value), {Added})
     when value is Zen:
       self.link_or_unlink(added, true)
     self.tracked[key] = value
-    let changes = @[added]
-    when V isnot Zen and V is ref:
-      self.ctx.ref_count(changes, self.id)
+    changes = @[added]
 
-    self.publish_changes changes, op_ctx
-    self.trigger_callbacks changes
+  result = changes
+
+proc put_all*[K, V](self: ZenTable[K, V], other: Table[K, V], touch: bool,
+    op_ctx: OperationContext) =
+
+  var changes: seq[Change[Pair[K, V]]] = @[]
+  for key, value in other:
+    changes.add self.build_changes(key, value, touch)
+
+  when V isnot Zen and V is ref:
+    self.ctx.ref_count(changes, self.id)
+
+  self.publish_changes changes, op_ctx
+  self.trigger_callbacks changes
+
+proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
+    op_ctx: OperationContext) =
+
+  private_access ZenObject
+  ensure self.valid
+
+  let changes = self.build_changes(key, value, touch)
+
+  when V isnot Zen and V is ref:
+    self.ctx.ref_count(changes, self.id)
+
+  self.publish_changes changes, op_ctx
+  self.trigger_callbacks changes
 
 proc len*[T, O](self: Zen[T, O]): int =
   privileged

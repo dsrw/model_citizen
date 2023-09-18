@@ -176,17 +176,42 @@ proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
     self.ctx.dead_connections &= self.ctx.reactor.dead_connections
     self.ctx.remote_messages &= self.ctx.reactor.messages
 
+proc pack_messages(msgs: seq[Message]): seq[Message] =
+  if msgs.len > 3:
+    var packed_msg =
+      Message(kind: Packed, source: msgs[0].source, flags: msgs[0].flags)
+    var ops: seq[PackedMessageOperation]
+
+    for msg in msgs:
+      if msg.object_id != "":
+        ensure packed_msg.object_id == "" or
+            packed_msg.object_id == msg.object_id
+
+        packed_msg.object_id = msg.object_id
+      if msg.type_id != 0:
+        ensure packed_msg.type_id == 0 or
+            packed_msg.type_id == msg.type_id
+
+        packed_msg.type_id= msg.type_id
+      ops.add (msg.kind, msg.ref_id, msg.change_object_id, msg.obj)
+
+    packed_msg.obj = ops.to_flatty
+    result = @[packed_msg]
+  else:
+    result = msgs
+
 proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
     op_ctx: OperationContext) =
 
   privileged
   log_defaults("model_citizen publishing")
-
   debug "publish_changes", ctx = self.ctx, op_ctx
-  let id = self.id
-  for sub in self.ctx.subscribers:
-    if sub.ctx_id in op_ctx.source:
-      continue
+  if self.ctx.subscribers.len > 0:
+    var msgs: seq[Message]
+    let id = self.id
+    ensure id in self.ctx.objects
+    let obj = self.ctx.objects[id]
+
     for change in changes:
       if [Added, Removed, Created, Touched].any_it(it in change.changes):
         if Removed in change.changes and Modified in change.changes:
@@ -195,14 +220,19 @@ proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
           # removed from a collection.
           debug "skipping changes"
           continue
-        ensure id in self.ctx.objects
-        let obj = self.ctx.objects[id]
         let trace = when defined(zen_trace):
           \"{get_stack_trace()}\n\nop:\n{op_ctx.trace}"
         else:
           ""
-        var msg = obj.build_message(obj, change, id, trace)
-        self.ctx.send(sub, msg, op_ctx, self.flags)
+        msgs.add obj.build_message(obj, change, id, trace)
+
+    msgs = pack_messages(msgs)
+
+    for sub in self.ctx.subscribers:
+      if sub.ctx_id notin op_ctx.source:
+        for msg in msgs:
+          self.ctx.send(sub, msg, op_ctx, self.flags)
+
     if ?self.ctx.reactor:
       self.ctx.reactor.tick
       self.ctx.dead_connections &= self.ctx.reactor.dead_connections
@@ -330,7 +360,17 @@ proc process_message(self: ZenContext, msg: Message) =
   #   self.last_received_id[src] = msg.id
   debug "receiving", msg, topics = "networking"
 
-  if msg.kind == Create:
+  if msg.kind == Packed:
+    let ops = msg.obj.from_flatty(seq[PackedMessageOperation])
+    for op in ops:
+      var new_msg = Message(kind: op.kind, object_id: msg.object_id,
+          type_id: msg.type_id, ref_id: op.ref_id, change_object_id:
+          op.change_object_id, obj: op.obj, flags: msg.flags, source:
+          msg.source)
+
+      self.process_message(new_msg)
+
+  elif msg.kind == Create:
     {.gcsafe.}:
       if msg.type_id notin type_initializers:
         print msg

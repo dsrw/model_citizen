@@ -553,11 +553,22 @@ proc run* =
       shared.init_zen_fields
 
       container.value = shared
-      container.value.edits[1] = init_table[string, string]()
+      container.value.edits[1] = {"1": "one", "2": "two"}.to_table
       ctx2.boop
 
       var dest = type(container)(ctx2[container])
-      check 1 in container.value.edits
+      check 1 in dest.value.edits
+      check dest.value.edits[1].len == 2
+      check dest.value.edits[1]["2"] == "two"
+
+      container.value.edits += {
+        2: {"3": "three"}.to_table,
+        3: {"4": "four"}.to_table
+      }.to_table
+
+      ctx2.boop
+      check dest.value.edits.len == 3
+      check dest.value.edits[3]["4"] == "four"
 
   test "zentable of zentables":
     type

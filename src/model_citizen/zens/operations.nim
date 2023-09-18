@@ -195,6 +195,10 @@ proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
   ensure self.valid
   self.add(value)
 
+proc `+=`*[T, O](self: ZenTable[T, O], other: Table[T, O]) =
+  ensure self.valid
+  self.put_all(other, touch = false, op_ctx = OperationContext())
+
 proc `-=`*[T, O](self: Zen[T, O], value: T) =
   ensure self.valid
   self.change(value, false, op_ctx = OperationContext())
