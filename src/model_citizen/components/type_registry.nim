@@ -232,7 +232,7 @@ proc free_refs*(self: ZenContext) =
       var counts = ""
       for kind in MessageKind:
         counts &= $kind & ": " & $self.counts[kind] & "\n"
-      write_file("counts", counts)
+      write_file(self.id & "-counts", counts)
       self.dump_at = now + init_duration(seconds = 10)
 
   var to_remove: seq[string]
