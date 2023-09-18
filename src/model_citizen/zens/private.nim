@@ -1,4 +1,4 @@
-import model_citizen / [core, types / defs {.all.}]
+import model_citizen / [core, types {.all.}]
 
 proc init*(_: type Change,
   T: type, changes: set[ChangeKind], field_name = ""): Change[T] =

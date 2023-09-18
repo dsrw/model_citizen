@@ -1,7 +1,6 @@
 import std / [typetraits, macros, macrocache, tables]
-import model_citizen / [core, components / private / tracking]
-import model_citizen / types / [zen_contexts, defs {.all.}, private]
-import ./ validations
+import model_citizen / [core, components / private / tracking, types {.all.}]
+import ./ [contexts, validations, private]
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
   private_access ZenObject[T, O]

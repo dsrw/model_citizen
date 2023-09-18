@@ -3,8 +3,7 @@ import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
 import pkg / [pretty, chronicles, netty]
 import model_citizen
 from std / times import init_duration
-import model_citizen / types / [defs {.all.}, zens {.all.},
-    zen_contexts {.all.}]
+import model_citizen / [types {.all.}, zens {.all.}, zens / contexts {.all.}]
 
 import model_citizen / components / type_registry
 

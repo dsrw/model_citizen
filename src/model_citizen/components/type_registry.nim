@@ -1,7 +1,7 @@
 import std / [locks, intsets, macros, typetraits, strutils]
 import std / macrocache except value
 import model_citizen / core
-import model_citizen / types / [private, defs {.all.}]
+import model_citizen / [types {.all.}, zens / private]
 import ./ private / global_state
 
 template deref*(o: ref): untyped = o[]

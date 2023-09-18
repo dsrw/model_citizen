@@ -1,7 +1,7 @@
 import std / [typetraits, macros, macrocache]
 import model_citizen / [core,  components / private / tracking]
-import model_citizen / types / [zen_contexts, private, defs {.all.}]
-import ./ validations, ./ operations
+import model_citizen / types {.all.}, model_citizen / zens / [validations,
+    operations, contexts, private]
 
 export new_ident_node
 

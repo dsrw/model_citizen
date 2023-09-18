@@ -2,8 +2,8 @@ import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks,
     sugar]
 
 import pkg / [flatty, supersnappy, threading / channels {.all.}]
-import model_citizen / [core, components / type_registry, types / zen_contexts,
-    types / private, types / defs {.all.}]
+import model_citizen / [core, components / type_registry, zens / contexts,
+    zens / private, types {.all.}]
 
 proc `-`*[T](a, b: seq[T]): seq[T] = a.filter proc(it: T): bool =
   it notin b

@@ -1,5 +1,5 @@
 import std / [tables, intsets, locks]
-import model_citizen / types / defs {.all.}
+import model_citizen / types {.all.}
 
 var active_ctx* {.threadvar.}: ZenContext
 

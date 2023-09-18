@@ -1,9 +1,8 @@
 import std / [net, tables, times]
 import pkg / chronicles
-import defs {.all.}
 
-import model_citizen / [core, utils / misc, types / zens / validations,
-    components / private / global_state]
+import model_citizen / [core, types {.all.}, utils / misc,
+    zens / validations, components / private / global_state]
 
 import ./ private
 

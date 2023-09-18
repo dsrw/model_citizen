@@ -1,4 +1,4 @@
-import model_citizen / types / defs
+import model_citizen / types
 import model_citizen / components / private / global_state
 const chronicles_enabled* {.strdefine.} = "off"
 

@@ -1,9 +1,9 @@
 import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks]
 import pkg / threading / channels {.all.}
 import pkg / [flatty, supersnappy]
-import model_citizen / core
-import model_citizen / types / [zen_contexts, private,
-    zens / initializers {.all.}, defs {.all.}]
+
+import model_citizen / [core, types {.all.}], model_citizen / zens /
+    [contexts, private, initializers {.all.}]
 
 import ./ type_registry
 
