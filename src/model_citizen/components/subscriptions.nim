@@ -177,7 +177,7 @@ proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
     self.ctx.remote_messages &= self.ctx.reactor.messages
 
 proc pack_messages(msgs: seq[Message]): seq[Message] =
-  if msgs.len > 3:
+  if msgs.len > 1:
     var packed_msg =
       Message(kind: Packed, source: msgs[0].source, flags: msgs[0].flags)
     var ops: seq[PackedMessageOperation]
