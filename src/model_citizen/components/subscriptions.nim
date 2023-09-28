@@ -383,8 +383,8 @@ proc process_message(self: ZenContext, msg: Message) =
 
   elif msg.kind != Blank:
     if msg.object_id notin self.objects:
-      error "missing object", object_id = msg.object_id
-      # :(
+      # :( this should throw an error
+      debug "missing object", object_id = msg.object_id
       return
     let obj = self.objects[msg.object_id]
     obj.change_receiver(obj, msg, op_ctx = OperationContext.init(source = msg, ctx = self))
