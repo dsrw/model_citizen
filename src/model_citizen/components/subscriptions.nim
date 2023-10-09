@@ -435,7 +435,7 @@ proc track*[T, O](self: Zen[T, O],
   result = zid
 
 proc untrack_on_destroy*(self: ref ZenBase, zid: ZID) =
-  self.bound_zids.incl(zid)
+  self.bound_zids.add(zid)
 
 proc boop*(self: ZenContext,
     messages = int.high, max_duration = self.max_recv_duration, min_duration =

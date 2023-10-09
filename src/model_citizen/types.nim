@@ -82,7 +82,7 @@ type
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]
-    objects*: OrderedTable[string, ref ZenBase]
+    objects*: Table[string, ref ZenBase]
     ref_pool: Table[string, CountedRef]
     subscribers: seq[Subscription]
     chan: Chan[Message]
@@ -108,7 +108,7 @@ type
     destroyed*: bool
     link_zid: ZID
     paused_zids: set[ZID]
-    bound_zids: set[ZID]
+    bound_zids: seq[ZID]
     flags*: set[ZenFlags]
     build_message: proc(self: ref ZenBase, change: BaseChange, id: string,
         trace: string): Message {.gcsafe.}
