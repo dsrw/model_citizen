@@ -263,7 +263,9 @@ proc destroy*[T, O](self: Zen[T, O], publish = true) =
   ensure self.valid
   self.untrack_all
   self.destroyed = true
-  self.ctx.objects.del self.id
+  self.ctx.objects[self.id] = nil
+  self.ctx.objects_need_packing = true
+
   if publish:
     self.publish_destroy OperationContext(source: self.ctx.id)
 

@@ -53,7 +53,7 @@ proc from_flatty*[T: ref RootObj](s: string, i: var int, value: var T) =
       var info: ZenFlattyInfo
       s.from_flatty(i, info)
       # :(
-      if info.object_id in flatty_ctx.objects:
+      if info.object_id in flatty_ctx:
         value = value.type()(flatty_ctx.objects[info.object_id])
   else:
     var is_registered: bool
@@ -209,7 +209,7 @@ proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
   if self.ctx.subscribers.len > 0:
     var msgs: seq[Message]
     let id = self.id
-    ensure id in self.ctx.objects
+    ensure id in self.ctx
     let obj = self.ctx.objects[id]
 
     for change in changes:
@@ -241,6 +241,7 @@ proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
 proc add_subscriber*(self: ZenContext, sub: Subscription, push_all: bool,
     remote_objects: HashSet[string]) =
 
+  self.pack_objects
   debug "adding subscriber", sub
   self.subscribers.add sub
   for id in self.objects.keys.to_seq.reversed:
@@ -272,6 +273,7 @@ proc process_value_initializers(self: ZenContext) =
 proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
   privileged
   debug "local subscribe", ctx = self.id
+  self.pack_objects
   var remote_objects: HashSet[string]
   for id in self.objects.keys:
     remote_objects.incl id
@@ -382,7 +384,7 @@ proc process_message(self: ZenContext, msg: Message) =
           OperationContext.init(source = msg, ctx = self))
 
   elif msg.kind != Blank:
-    if msg.object_id notin self.objects:
+    if msg.object_id notin self:
       # :( this should throw an error
       debug "missing object", object_id = msg.object_id
       return
@@ -491,6 +493,7 @@ proc boop*(self: ZenContext,
               connection: raw_msg.conn, ctx_id: msg.source),
               push_all = true, remote)
 
+          self.pack_objects
           var objects = self.objects.keys.to_seq.join(":")
 
           self.reactor.send(raw_msg.conn, "ACK:" & self.id & ":" & objects)

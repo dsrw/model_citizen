@@ -228,6 +228,7 @@ proc free_refs*(self: ZenContext) =
   when defined(dump_zen_objects):
     let now = get_mono_time()
     if now > self.dump_at:
+      self.pack_objects
       write_file(self.id, self.objects.keys.to_seq.sorted.join("\n"))
       var counts = ""
       for kind in MessageKind:

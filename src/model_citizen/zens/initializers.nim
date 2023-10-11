@@ -58,6 +58,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   else:
     id
 
+  if self.id in ctx.objects and not ?ctx.objects[self.id]:
+    ctx.pack_objects
   ctx.objects[self.id] = self
 
   self.publish_create = proc(sub: Subscription, broadcast: bool,
@@ -147,19 +149,19 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
     when O is Zen:
       let object_id = msg.change_object_id
-      ensure object_id in self.ctx.objects
+      ensure object_id in self.ctx
       let item = O(self.ctx.objects[object_id])
     elif O is Pair[any, Zen]:
       # Workaround for compile issue. This should be `O`, not `O.default.type`.
       type K = generic_params(O.default.type).get(0)
       type V = generic_params(O.default.type).get(1)
-      if msg.object_id notin self.ctx.objects:
+      if msg.object_id notin self.ctx:
         when defined(zen_trace):
           echo msg.trace
         fail "object not in context " & msg.object_id &
             " " & $Zen[T, O]
 
-      if msg.change_object_id notin self.ctx.objects and msg.kind == Unassign:
+      if msg.change_object_id notin self.ctx and msg.kind == Unassign:
         debug "can't find ", obj = msg.change_object_id
         return
       let value = V(self.ctx.objects[msg.change_object_id])

@@ -82,7 +82,8 @@ type
     changed_callback_zid: ZID
     last_id: int
     close_procs: Table[ZID, proc() {.gcsafe.}]
-    objects*: Table[string, ref ZenBase]
+    objects*: OrderedTable[string, ref ZenBase]
+    objects_need_packing*: bool
     ref_pool: Table[string, CountedRef]
     subscribers: seq[Subscription]
     chan: Chan[Message]

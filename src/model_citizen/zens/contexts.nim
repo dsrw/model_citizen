@@ -1,4 +1,4 @@
-import std / [net, tables, times]
+import std / [net, tables, times, options]
 import pkg / chronicles
 
 import model_citizen / [core, types {.all.}, utils / misc,
@@ -8,14 +8,24 @@ import ./ private
 
 export ZenContext
 
-proc contains*(self: ZenContext, zen: ref ZenBase): bool =
-  ensure zen.valid
-  zen.id in self.objects
+proc pack_objects*(self: ZenContext) =
+  if self.objects_need_packing:
+    var table: OrderedTable[string, ref ZenBase]
+    for key, value in self.objects:
+      if ?value:
+        table[key] = value
+    self.objects = table
+    self.objects_need_packing = false
 
 proc contains*(self: ZenContext, id: string): bool =
-  id in self.objects
+  id in self.objects and self.objects[id] != nil
+
+proc contains*(self: ZenContext, zen: ref ZenBase): bool =
+  ensure zen.valid
+  zen.id in self
 
 proc len*(self: ZenContext): int =
+  self.pack_objects
   self.objects.len
 
 proc init*(_: type ZenContext,
@@ -71,6 +81,7 @@ proc `[]`*(self: ZenContext, id: string): ref ZenBase =
 proc clear*(self: ZenContext) =
   debug "Clearing ZenContext"
   self.objects.clear
+  self.objects_need_packing = false
 
 proc close*(self: ZenContext) =
   if ?self.reactor:
