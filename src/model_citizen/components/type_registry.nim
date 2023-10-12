@@ -1,7 +1,7 @@
 import std / [locks, intsets, macros, typetraits, strutils]
 import std / macrocache except value
 import model_citizen / core
-import model_citizen / [types {.all.}, zens / private]
+import model_citizen / [types {.all.}, zens / contexts, zens / private]
 import ./ private / global_state
 
 template deref*(o: ref): untyped = o[]
@@ -229,7 +229,7 @@ proc free_refs*(self: ZenContext) =
     let now = get_mono_time()
     if now > self.dump_at:
       self.pack_objects
-      write_file(self.id, self.objects.keys.to_seq.sorted.join("\n"))
+      write_file(self.id, self.objects.keys.to_seq.reversed.join("\n"))
       var counts = ""
       for kind in MessageKind:
         counts &= $kind & ": " & $self.counts[kind] & "\n"
