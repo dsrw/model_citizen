@@ -57,6 +57,8 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     $self.type & "-" & generate_id()
   else:
     id
+  
+  debug "creating zen object", id = self.id
 
   if self.id in ctx.objects and not ?ctx.objects[self.id]:
     ctx.pack_objects
