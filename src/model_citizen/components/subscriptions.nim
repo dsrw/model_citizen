@@ -66,7 +66,7 @@ proc from_flatty*[T: ref RootObj](s: string, i: var int, value: var T) =
         value = value.type()(flatty_ctx.ref_pool[val.ref_id].obj)
       else:
         var registered_type: RegisteredType
-        ensure lookup_type(val.tid, registered_type)
+        assert lookup_type(val.tid, registered_type)
         value = value.type()(registered_type.parse(flatty_ctx, val.item))
     else:
       var is_nil: bool
@@ -184,12 +184,12 @@ proc pack_messages(msgs: seq[Message]): seq[Message] =
 
     for msg in msgs:
       if msg.object_id != "":
-        ensure packed_msg.object_id == "" or
+        assert packed_msg.object_id == "" or
             packed_msg.object_id == msg.object_id
 
         packed_msg.object_id = msg.object_id
       if msg.type_id != 0:
-        ensure packed_msg.type_id == 0 or
+        assert packed_msg.type_id == 0 or
             packed_msg.type_id == msg.type_id
 
         packed_msg.type_id= msg.type_id
@@ -209,7 +209,7 @@ proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
   if self.ctx.subscribers.len > 0:
     var msgs: seq[Message]
     let id = self.id
-    ensure id in self.ctx
+    assert id in self.ctx
     let obj = self.ctx.objects[id]
 
     for change in changes:
@@ -301,7 +301,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
     self.reactor = new_reactor()
   self.subscribing = true
   let parts = address.split(":")
-  ensure parts.len in [1, 2], "subscription address must be in the format " &
+  assert parts.len in [1, 2], "subscription address must be in the format " &
       "`hostname` or `hostname:port`"
 
   if parts.len == 2:
@@ -352,7 +352,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
 proc process_message(self: ZenContext, msg: Message) =
   privileged
   log_defaults("model_citizen publishing")
-  ensure self.id notin msg.source
+  assert self.id notin msg.source
   # when defined(zen_trace):
   #   let src = self.name & "-" & msg.source
   #   if src in self.last_received_id:
@@ -397,7 +397,7 @@ proc process_message(self: ZenContext, msg: Message) =
 proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
   privileged
   log_defaults
-  ensure self.valid
+  assert self.valid
 
   # :(
   if zid in self.changed_callbacks:
@@ -416,7 +416,7 @@ proc track*[T, O](self: Zen[T, O],
   privileged
   log_defaults
 
-  ensure self.valid
+  assert self.valid
   inc self.ctx.changed_callback_zid
   let zid = self.ctx.changed_callback_zid
   self.changed_callbacks[zid] = callback
@@ -429,7 +429,7 @@ proc track*[T, O](self: Zen[T, O],
     callback: proc(changes: seq[Change[O]], zid: ZID) {.gcsafe.}):
     ZID {.discardable.} =
 
-  ensure self.valid
+  assert self.valid
   var zid: ZID
   zid = self.track proc(changes: seq[Change[O]]) {.gcsafe.} =
     callback(changes, zid)

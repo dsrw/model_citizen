@@ -102,7 +102,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     var msg = Message(object_id: id, type_id: Zen[T, O].tid)
     when defined(zen_trace):
       msg.trace = trace
-    ensure Added in change.changes or Removed in change.changes or
+    assert Added in change.changes or Removed in change.changes or
       Touched in change.changes
     let change = Change[O](change)
     when change.item is Zen:
@@ -142,7 +142,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
   self.change_receiver = proc(self: ref ZenBase, msg: Message,
       op_ctx: OperationContext) =
 
-    ensure self of Zen[T, O]
+    assert self of Zen[T, O]
     let self = Zen[T, O](self)
 
     if msg.kind == Destroy:
@@ -151,7 +151,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
 
     when O is Zen:
       let object_id = msg.change_object_id
-      ensure object_id in self.ctx
+      assert object_id in self.ctx
       let item = O(self.ctx.objects[object_id])
     elif O is Pair[any, Zen]:
       # Workaround for compile issue. This should be `O`, not `O.default.type`.
@@ -202,7 +202,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
     else:
       fail "Can't handle message " & $msg.kind
 
-  ensure self.ctx == nil
+  assert self.ctx == nil
   self.ctx = ctx
 
   self.publish_create(broadcast = true, op_ctx = op_ctx)

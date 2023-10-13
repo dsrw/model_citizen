@@ -26,17 +26,11 @@ type
   ZenError* = object of CatchableError
 
   ConnectionError* = object of ZenError
-  ZenAssertionError* = object of ZenError
 
 # Exceptions
 
 template fail*(msg: string) =
-  raise ZenAssertionError.new_exception(msg)
-
-template ensure*(condition: bool, msg = "enu assert error") =
-  {.line.}:
-    if not condition:
-      raise ZenAssertionError.new_exception(msg)
+  raise_assert msg
 
 proc init*[T: Exception](kind: type[T], message: string, parent:
     ref Exception = nil): ref Exception =

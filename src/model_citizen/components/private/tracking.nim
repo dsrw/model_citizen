@@ -273,7 +273,7 @@ proc build_changes[K, V](self: ZenTable[K, V], key: K, value: V,
     touch: bool): seq[Change[Pair[K, V]]] =
 
   private_access ZenObject
-  ensure self.valid
+  assert self.valid
 
   var changes: seq[Change[Pair[K, V]]]
 
@@ -320,7 +320,7 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
     op_ctx: OperationContext) =
 
   private_access ZenObject
-  ensure self.valid
+  assert self.valid
 
   let changes = self.build_changes(key, value, touch)
 
@@ -332,7 +332,7 @@ proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
 
 proc len*[T, O](self: Zen[T, O]): int =
   privileged
-  ensure self.valid
+  assert self.valid
   self.tracked.len
 
 template remove*(self, key, item_exp, fun, op_ctx) =

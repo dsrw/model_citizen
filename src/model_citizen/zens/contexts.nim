@@ -21,7 +21,7 @@ proc contains*(self: ZenContext, id: string): bool =
   id in self.objects and self.objects[id] != nil
 
 proc contains*(self: ZenContext, zen: ref ZenBase): bool =
-  ensure zen.valid
+  assert zen.valid
   zen.id in self
 
 proc len*(self: ZenContext): int =
@@ -47,7 +47,7 @@ proc init*(_: type ZenContext,
   if ?listen_address:
     var listen_address = listen_address
     let parts = listen_address.split(":")
-    ensure parts.len in [1, 2], "listen_address must be in the format " &
+    assert parts.len in [1, 2], "listen_address must be in the format " &
         "`hostname` or `hostname:port`"
 
     var port = 9632
