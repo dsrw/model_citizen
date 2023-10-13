@@ -247,17 +247,32 @@ proc free_refs*(self: ZenContext) =
     debug "freeing ref", id
     self.freeable_refs.del(id)
 
+proc can_free*[T: ref RootObj](self: ZenContext, value: T): 
+  tuple[freeable: bool, references: seq[string], missing: bool, id: string] =
+
+  privileged
+  let id = value.ref_id
+  result.id = id
+  result.freeable = true
+  if id notin self.freeable_refs:
+    result.freeable = false
+    if id in self.ref_pool:
+      result.references = self.ref_pool[id].references.to_seq
+    else:
+      result.missing = true
+
 proc free*[T: ref RootObj](self: ZenContext, value: T) =
   privileged
 
-  let id = value.ref_id
+  let query = self.can_free(value)
+  let id = query.id
   debug "freeing ref", id
+  if not query.freeable:
+    let references = query.references.join(", ")
+    if query.missing:
+      fail \"ref `{id}` has {query.references.len} references from " & 
+        \"{references}. Can't free."
 
-  if id notin self.freeable_refs:
-    if id in self.ref_pool:
-      let count = self.ref_pool[id].references.card
-      let references = self.ref_pool[id].references.to_seq.join(", ")
-      fail \"ref `{id}` has {count} references from {references}. Can't free."
     else:
       fail \"unable to find ref_id `{id}` in freeable refs. Double free?"
 

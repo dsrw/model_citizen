@@ -351,7 +351,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
 
 proc process_message(self: ZenContext, msg: Message) =
   privileged
-  log_defaults
+  log_defaults("model_citizen publishing")
   ensure self.id notin msg.source
   # when defined(zen_trace):
   #   let src = self.name & "-" & msg.source
