@@ -263,6 +263,12 @@ proc free*[T: ref RootObj](self: ZenContext, value: T) =
   debug "freeing ref", id
   if not query.freeable:
     let references = query.references.join(", ")
+    when defined(zen_lax_free):
+      error "Free error", id, references = query.references
+      self.ref_pool.del(id)
+      self.freeable_refs.del(id)
+      return
+
     if not query.missing:
       fail \"ref `{id}` has {query.references.len} references from " & 
         \"{references}. Can't free."
