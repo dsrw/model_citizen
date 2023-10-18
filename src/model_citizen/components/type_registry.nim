@@ -71,12 +71,6 @@ proc register_type(typ: type) =
     global_type_registry[][key] = RegisteredType(stringify: stringify,
         parse: parse, tid: key)
 
-proc value_type[T, O](self: Zen[T, O]): type O = O
-
-proc build_zen_accessor(self, field: NimNode): NimNode =
-  result = quote do:
-    `self`.`field`
-
 proc is_zen(node: NimNode): bool =
   if node.kind == nnk_sym and node.str_val == "ZenBase":
     return true
@@ -269,7 +263,7 @@ proc free*[T: ref RootObj](self: ZenContext, value: T) =
   debug "freeing ref", id
   if not query.freeable:
     let references = query.references.join(", ")
-    if query.missing:
+    if not query.missing:
       fail \"ref `{id}` has {query.references.len} references from " & 
         \"{references}. Can't free."
 
