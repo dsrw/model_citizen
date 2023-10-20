@@ -1,5 +1,4 @@
 import std / [options, sets, macrocache, strformat, strutils]
-import pkg / [nanoid]
 
 # Logic
 
@@ -19,8 +18,21 @@ template `?`*[T](self: HashSet[T]): bool = self.card > 0
 
 # Ids
 
-proc generate_id*(): string =
-  generate(alphabet = "abcdefghijklmnopqrstuvwxyz0123456789", size = 13)
+# Sequential ids can make debugging easier in some cases, especially when
+# diffing logs between runs. Ids will be unique across threads but not across 
+# processes, so ensure this is only enabled for a single client.
+when defined(zen_sequential_ids):
+  import std / atomics
+  var id_counter: Atomic[int]
+  id_counter.store(0)
+
+  proc generate_id*(): string =
+    id_counter += 1
+    "id-" & $id_counter.load
+else:
+  import pkg / nanoid
+  proc generate_id*(): string =
+    generate(alphabet = "abcdefghijklmnopqrstuvwxyz0123456789", size = 13)
 
 type
   ZenError* = object of CatchableError
