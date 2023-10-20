@@ -47,7 +47,7 @@ proc init*(_: type ZenContext,
   if ?listen_address:
     var listen_address = listen_address
     let parts = listen_address.split(":")
-    assert parts.len in [1, 2], "listen_address must be in the format " &
+    do_assert parts.len in [1, 2], "listen_address must be in the format " &
         "`hostname` or `hostname:port`"
 
     var port = 9632

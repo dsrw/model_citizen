@@ -66,7 +66,7 @@ proc from_flatty*[T: ref RootObj](s: string, i: var int, value: var T) =
         value = value.type()(flatty_ctx.ref_pool[val.ref_id].obj)
       else:
         var registered_type: RegisteredType
-        assert lookup_type(val.tid, registered_type)
+        do_assert lookup_type(val.tid, registered_type)
         value = value.type()(registered_type.parse(flatty_ctx, val.item))
     else:
       var is_nil: bool
