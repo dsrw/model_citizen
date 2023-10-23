@@ -1,5 +1,5 @@
 import std / [net, tables, times, options]
-import pkg / chronicles
+import pkg / chronicles, pkg / threading / channels {.all.}
 
 import model_citizen / [core, types {.all.}, utils / misc,
     zens / validations, components / private / global_state]
@@ -77,6 +77,27 @@ proc `[]`*[T, O](self: ZenContext, src: Zen[T, O]): Zen[T, O] =
 
 proc `[]`*(self: ZenContext, id: string): ref ZenBase =
   result = self.objects[id]
+
+proc len*(self: Chan): int =
+  private_access Chan
+  private_access ChannelObj
+  result = self.d[].slots
+
+proc remaining*(self: Chan): int =
+  result = self.len - self.peek
+
+proc full*(self: Chan): bool =
+  self.remaining == 0
+
+proc pressure*(self: ZenContext): float =
+  privileged
+  if self.buffer:
+    for sub in self.subscribers:
+      if sub.kind == Local:
+        if sub.chan_buffer.len > 0:
+          return 1.0
+
+  result = (self.chan.len - self.chan.remaining) / self.chan.len
 
 proc clear*(self: ZenContext) =
   debug "Clearing ZenContext"

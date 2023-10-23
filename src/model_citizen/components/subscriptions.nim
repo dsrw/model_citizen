@@ -99,15 +99,6 @@ proc from_flatty*(bin: string, T: type, ctx: ZenContext): T =
   flatty_ctx = ctx
   result = flatty.from_flatty(bin, T)
 
-proc remaining*(self: Chan): int =
-  private_access Chan
-  private_access ChannelObj
-  let size = self.d[].slots
-  result = size - self.peek
-
-proc full*(self: Chan): bool =
-  self.remaining == 0
-
 proc send_or_buffer(sub: Subscription, msg: sink Message, buffer: bool) =
   if buffer and (sub.chan_buffer.len > 0 or sub.chan.full):
     sub.chan_buffer.add msg
