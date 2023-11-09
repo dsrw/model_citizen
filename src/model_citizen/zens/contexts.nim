@@ -8,6 +8,15 @@ import ./ private
 
 export ZenContext
 
+proc init_metrics*(_: type ZenContext, labels: varargs[string]) =
+  for label in labels:
+    pressure_gauge.set(0.0, label_values = [label])
+    object_pool_gauge.set(0.0, label_values = [label])
+    ref_pool_gauge.set(0.0, label_values = [label])
+    buffer_gauge.set(0.0, label_values = [label])
+    sent_message_counter.inc(0, label_values = [label])
+    received_message_counter.inc(0, label_values = [label])
+
 proc pack_objects*(self: ZenContext) =
   if self.objects_need_packing:
     var table: OrderedTable[string, ref ZenBase]
@@ -29,19 +38,21 @@ proc len*(self: ZenContext): int =
   self.objects.len
 
 proc init*(_: type ZenContext,
-    id = "thread-" & $get_thread_id(), listen_address = "",
-    blocking_recv = false, chan_size = 100, buffer = false,
-    max_recv_duration = Duration.default,
-    min_recv_duration = Duration.default): ZenContext =
+  id = "thread-" & $get_thread_id(), listen_address = "",
+  blocking_recv = false, chan_size = 100, buffer = false,
+  max_recv_duration = Duration.default, min_recv_duration = Duration.default,
+  label = "default"): ZenContext =
 
   privileged
   log_scope:
     topics = "model_citizen"
 
   debug "ZenContext initialized", id
+
   result = ZenContext(id: id, blocking_recv: blocking_recv,
       max_recv_duration: max_recv_duration,
-      min_recv_duration: min_recv_duration, buffer: buffer)
+      min_recv_duration: min_recv_duration, buffer: buffer, 
+      metrics_label: label)
 
   result.chan = new_chan[Message](elements = chan_size)
   if ?listen_address:
@@ -98,6 +109,13 @@ proc pressure*(self: ZenContext): float =
           return 1.0
 
   result = (self.chan.len - self.chan.remaining) / self.chan.len
+
+proc boop_reactor*(self: ZenContext) =
+  privileged
+  if ?self.reactor:
+    self.reactor.tick
+    self.dead_connections &= self.reactor.dead_connections
+    self.remote_messages &= self.reactor.messages
 
 proc clear*(self: ZenContext) =
   debug "Clearing ZenContext"

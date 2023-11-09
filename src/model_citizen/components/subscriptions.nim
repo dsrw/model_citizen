@@ -1,9 +1,13 @@
-import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks]
+import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks,
+  math]
+
 import pkg / threading / channels {.all.}
 import pkg / [flatty, supersnappy]
 
 import model_citizen / [core, types {.all.}], model_citizen / zens /
-    [contexts, private, initializers {.all.}]
+  [contexts, private, initializers {.all.}]
+
+import model_citizen / components / [private / global_state]
 
 import ./ type_registry
 
@@ -117,6 +121,7 @@ proc send*(self: ZenContext, sub: Subscription, msg: sink Message,
     op_ctx = OperationContext(), flags = default_flags) =
 
   log_defaults("model_citizen networking")
+  sent_message_counter.inc(label_values = [self.metrics_label])
   when defined(zen_trace):
     if sub.ctx_id notin self.last_msg_id:
       self.last_msg_id[sub.ctx_id] = 1
@@ -128,7 +133,6 @@ proc send*(self: ZenContext, sub: Subscription, msg: sink Message,
     self.counts[msg.kind] += 1
 
   debug "sending message", msg
-
 
   msg.source = op_ctx.source
   if msg.source == "":
@@ -162,11 +166,8 @@ proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
         self.ctx.send(sub, Message(kind: Destroy, object_id: self.id),
             op_ctx, self.flags)
 
-  if ?self.ctx.reactor:
-    self.ctx.reactor.tick
-    self.ctx.dead_connections &= self.ctx.reactor.dead_connections
-    self.ctx.remote_messages &= self.ctx.reactor.messages
-
+  self.ctx.boop_reactor
+    
 proc pack_messages(msgs: seq[Message]): seq[Message] =
   if msgs.len > 1:
     var packed_msg =
@@ -224,10 +225,7 @@ proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
         for msg in msgs:
           self.ctx.send(sub, msg, op_ctx, self.flags)
 
-    if ?self.ctx.reactor:
-      self.ctx.reactor.tick
-      self.ctx.dead_connections &= self.ctx.reactor.dead_connections
-      self.ctx.remote_messages &= self.ctx.reactor.messages
+    self.ctx.boop_reactor
 
 proc add_subscriber*(self: ZenContext, sub: Subscription, push_all: bool,
     remote_objects: HashSet[string]) =
@@ -344,6 +342,8 @@ proc process_message(self: ZenContext, msg: Message) =
   privileged
   log_defaults("model_citizen publishing")
   assert self.id notin msg.source
+
+  received_message_counter.inc(label_values = [self.metrics_label])
   # when defined(zen_trace):
   #   let src = self.name & "-" & msg.source
   #   if src in self.last_received_id:
@@ -431,9 +431,20 @@ proc untrack_on_destroy*(self: ref ZenBase, zid: ZID) =
   self.bound_zids.add(zid)
 
 proc boop*(self: ZenContext,
-    messages = int.high, max_duration = self.max_recv_duration, min_duration =
-    self.min_recv_duration, blocking = self.blocking_recv,
-    poll = true) {.gcsafe.} =
+  messages = int.high, max_duration = self.max_recv_duration, min_duration =
+  self.min_recv_duration, blocking = self.blocking_recv,
+  poll = true) {.gcsafe.} =
+
+  pressure_gauge.set(self.pressure, label_values = [self.metrics_label])
+  object_pool_gauge.set(float self.objects.len, 
+    label_values = [self.metrics_label])
+
+  ref_pool_gauge.set(float self.ref_pool.len, label_values = 
+    [self.metrics_label])
+
+  buffer_gauge.set(float self.subscribers.map_it(
+    if it.kind == Local: it.chan_buffer.len else: 0).sum, 
+    label_values = [self.metrics_label])
 
   var msg: Message
   self.unsubscribed = @[]
@@ -459,12 +470,9 @@ proc boop*(self: ZenContext,
         inc count
 
     if ?self.reactor:
-      let messages = if poll:
-        self.reactor.tick()
-        self.dead_connections &= self.reactor.dead_connections
-        self.remote_messages & self.reactor.messages
-      else:
-        self.remote_messages
+      if poll:
+        self.boop_reactor
+      let messages = self.remote_messages
       self.remote_messages = @[]
 
       for conn in self.dead_connections:
@@ -488,6 +496,7 @@ proc boop*(self: ZenContext,
           var objects = self.objects.keys.to_seq.join(":")
 
           self.reactor.send(raw_msg.conn, "ACK:" & self.id & ":" & objects)
+          sent_message_counter.inc(label_values = [self.metrics_label])
           self.reactor.tick
           self.dead_connections &= self.reactor.dead_connections
           self.remote_messages &= self.reactor.messages

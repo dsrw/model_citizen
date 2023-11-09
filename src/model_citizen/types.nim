@@ -64,9 +64,9 @@ type
     parse*: proc(ctx: ZenContext, clone_from: string):
         ref RootObj {.no_side_effect.}
 
-  SubscriptionKind = enum Blank, Local, Remote
+  SubscriptionKind* = enum Blank, Local, Remote
 
-  Subscription = ref object
+  Subscription* = ref object
     ctx_id*: string
     case kind*: SubscriptionKind
     of Local:
@@ -85,7 +85,7 @@ type
     objects*: OrderedTable[string, ref ZenBase]
     objects_need_packing*: bool
     ref_pool: Table[string, CountedRef]
-    subscribers: seq[Subscription]
+    subscribers*: seq[Subscription]
     chan: Chan[Message]
     freeable_refs: Table[string, MonoTime]
     last_msg_id: Table[string, int]
@@ -100,6 +100,7 @@ type
     value_initializers*: seq[proc() {.gcsafe.}]
     dead_connections: seq[Connection]
     unsubscribed*: seq[string]
+    metrics_label*: string
     when defined(dump_zen_objects):
       dump_at*: MonoTime
       counts*: array[MessageKind, int]

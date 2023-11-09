@@ -91,10 +91,7 @@ proc defaults[T, O](self: Zen[T, O], ctx: ZenContext, id: string,
       for sub in ctx.subscribers:
         if sub.ctx_id notin op_ctx.source:
           ctx.send_msg(sub)
-    if ?ctx.reactor:
-      ctx.reactor.tick
-      ctx.dead_connections &= ctx.reactor.dead_connections
-      ctx.remote_messages &= ctx.reactor.messages
+    ctx.boop_reactor
 
   self.build_message = proc(self: ref ZenBase, change: BaseChange, id,
       trace: string): Message =
