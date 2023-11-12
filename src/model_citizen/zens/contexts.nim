@@ -1,4 +1,4 @@
-import std / [net, tables, times, options]
+import std / [net, tables, times, options, sugar, math]
 import pkg / chronicles, pkg / threading / channels {.all.}
 
 import model_citizen / [core, types {.all.}, utils / misc,
@@ -14,9 +14,12 @@ proc init_metrics*(_: type ZenContext, labels: varargs[string]) =
     object_pool_gauge.set(0.0, label_values = [label])
     ref_pool_gauge.set(0.0, label_values = [label])
     buffer_gauge.set(0.0, label_values = [label])
+    chan_remaining_gauge.set(0.0, label_values = [label])
     sent_message_counter.inc(0, label_values = [label])
     received_message_counter.inc(0, label_values = [label])
-
+    dropped_message_counter.inc(0, label_values = [label])
+    boops_counter.inc(0, label_values = [label])
+    
 proc pack_objects*(self: ZenContext) =
   if self.objects_need_packing:
     var table: OrderedTable[string, ref ZenBase]
@@ -102,13 +105,15 @@ proc full*(self: Chan): bool =
 
 proc pressure*(self: ZenContext): float =
   privileged
-  if self.buffer:
+
+  let values = collect:
     for sub in self.subscribers:
       if sub.kind == Local:
         if sub.chan_buffer.len > 0:
           return 1.0
+        (sub.chan.len - sub.chan.remaining).float / sub.chan.len.float
 
-  result = (self.chan.len - self.chan.remaining) / self.chan.len
+  result = values.sum / float values.len
 
 proc boop_reactor*(self: ZenContext) =
   privileged

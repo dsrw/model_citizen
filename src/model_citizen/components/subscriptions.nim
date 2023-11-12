@@ -111,9 +111,9 @@ proc send_or_buffer(sub: Subscription, msg: sink Message, buffer: bool) =
 
 proc flush_buffers*(self: ZenContext) =
   for sub in self.subscribers:
-    if sub.kind == Local:
+    if sub.kind == Local and sub.chan_buffer.len > 0 and not sub.chan.full:
       let buffer = sub.chan_buffer
-      sub.chan_buffer = @[]
+      sub.chan_buffer.set_len(0)
       for msg in buffer:
         sub.send_or_buffer(msg, true)
 
@@ -435,6 +435,8 @@ proc boop*(self: ZenContext,
   self.min_recv_duration, blocking = self.blocking_recv,
   poll = true) {.gcsafe.} =
 
+  boops_counter.inc(label_values = [self.metrics_label])
+
   pressure_gauge.set(self.pressure, label_values = [self.metrics_label])
   object_pool_gauge.set(float self.objects.len, 
     label_values = [self.metrics_label])
@@ -444,6 +446,9 @@ proc boop*(self: ZenContext,
 
   buffer_gauge.set(float self.subscribers.map_it(
     if it.kind == Local: it.chan_buffer.len else: 0).sum, 
+    label_values = [self.metrics_label])
+
+  chan_remaining_gauge.set(float self.chan.remaining, 
     label_values = [self.metrics_label])
 
   var msg: Message
@@ -462,10 +467,7 @@ proc boop*(self: ZenContext,
   self.flush_buffers
   while true:
     if poll:
-      while count < messages and self.chan.peek > 0 and
-          get_mono_time() < timeout:
-
-        self.chan.recv(msg)
+      while get_mono_time() < timeout and self.chan.try_recv(msg):
         self.process_message(msg)
         inc count
 

@@ -28,6 +28,9 @@ declare_public_gauge object_pool_gauge, "Object pool size",
 declare_public_gauge ref_pool_gauge, "Ref pool size", 
   name = "zen_ref_pool", labels = ["ctx_label"]
 
+declare_public_gauge chan_remaining_gauge, "Free channel slots", name = "zen_chan_remaining", 
+  labels = ["ctx_label"]
+
 declare_public_gauge buffer_gauge, "Buffer size", name = "zen_channel_buffer", 
   labels = ["ctx_label"]
 
@@ -36,3 +39,9 @@ declare_public_counter sent_message_counter, "Messages sent",
 
 declare_public_counter received_message_counter, "Messages received", 
   name = "zen_received_messages", labels = ["ctx_label"]
+
+declare_public_counter dropped_message_counter, "Messages dropped", 
+  name = "zen_dropped_messages", labels = ["ctx_label"]
+
+declare_public_counter boops_counter, "Boops", 
+  name = "zen_boops", labels = ["ctx_label"]
