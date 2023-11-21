@@ -509,10 +509,11 @@ proc boop*(self: ZenContext,
     if poll == false or ((count > 0 or not blocking) and get_mono_time() > recv_until):
       break
 
-template changes*[T, O](self: Zen[T, O], body) =
+template changes*[T, O](self: Zen[T, O], pause_me, body) =
   let zen = self
   zen.track proc(changes: seq[Change[O]], zid {.inject.}: ZID) {.gcsafe.} =
-    zen.pause(zid):
+    let pause_zid = if pause_me: zid else: 0
+    zen.pause(pause_zid):
       for change {.inject.} in changes:
         template added: bool = Added in change.changes
         template added(obj: O): bool = change.item == obj and added()
@@ -525,3 +526,6 @@ template changes*[T, O](self: Zen[T, O], body) =
         template closed: bool = Closed in change.changes
 
         body
+
+template changes*[T, O](self: Zen[T, O], body) =
+  changes(self, true, body)
