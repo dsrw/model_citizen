@@ -45,7 +45,7 @@ template fail*(msg: string) =
   raise_assert msg
 
 proc init*[T: Exception](kind: type[T], message: string, parent:
-    ref Exception = nil): ref Exception =
+    ref Exception = nil): ref T =
 
   (ref kind)(msg: message, parent: parent)
 
