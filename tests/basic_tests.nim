@@ -198,8 +198,13 @@ proc run* =
     a[1] += 3
 
   test "nested_changes":
+    let flags = {TrackChildren, SyncLocal, SyncRemote}
     type Flags = enum Flag1, Flag2
-    let buffers = ~{1: ~{1: ~[~{Flag1}, ~{Flag2}]}}
+    let buffers = ~({
+      1: ~({
+        1: ~([~{Flag1}, ~{Flag2}], flags = flags)
+      }, flags = flags)
+    }, flags = flags)
     var id = buffers.count_changes
 
     # we're watching the top level object. Any child change will
@@ -210,7 +215,7 @@ proc run* =
     0.changes: buffers[1][1][0] += Flag1 # already there. No change
     1.changes: buffers[1][1][0] -= {Flag1, Flag2}
     1.changes: buffers[1][1] += ~{Flag1, Flag2}
-    1.changes: buffers[1][1] = ~[~{Flag1}]
+    1.changes: buffers[1][1] = ~([~{Flag1}], flags = flags)
 
     # unlink
     buffers[1][1][0].clear
@@ -223,7 +228,7 @@ proc run* =
     2.changes: buffers[1] = nil # Added and Removed changes
     buffers.untrack(id)
 
-    buffers[1] = ~{1: ~[~{Flag1}]}
+    buffers[1] = ~({1: ~([~({Flag1}, flags = flags)], flags = flags)}, flags = flags)
     id = buffers[1][1][0].count_changes
     1.changes: buffers[1][1][0] += {Flag1, Flag2}
     0.changes: buffers[1][1][0] += {Flag1, Flag2}
@@ -282,7 +287,9 @@ proc run* =
         units: Zen[seq[Unit], Unit]
         flags: ZenSet[UnitFlags]
 
-    proc init(_: type Unit, id = 0, flags = default_flags): Unit =
+    proc init(_: type Unit, id = 0, flags = 
+      {TrackChildren, SyncLocal, SyncRemote}): Unit =
+
       result = Unit(id: id)
       result.units = ~(seq[Unit], flags)
       result.flags = ~(set[UnitFlags], flags)
@@ -744,7 +751,9 @@ proc run* =
     Zen.register(SyncUnit, false)
 
     local_and_remote:
-      var src = State().init_zen_fields
+      let flags = {TrackChildren, SyncLocal, SyncRemote}
+      var src = State().init_zen_fields(flags = flags)
+
       ctx2.boop
       var dest = State.init_from(src, ctx = ctx2)
       var src_change_id = 0
@@ -762,11 +771,11 @@ proc run* =
           change = Change[SyncUnit](change.triggered_by[0])
         dest_change_id = change.item.id
 
-      let base = SyncUnit(id: 1).init_zen_fields
+      let base = SyncUnit(id: 1).init_zen_fields(flags = flags)
       src.units.add base
       ctx2.boop
 
-      let child = SyncUnit(id: 3).init_zen_fields
+      let child = SyncUnit(id: 3).init_zen_fields(flags = flags)
       ctx2.boop
       src_change_id = 0
       dest_change_id = 0
@@ -777,7 +786,9 @@ proc run* =
       check dest_change_id == 3
 
       Zen.thread_ctx = ctx2
-      let grandchild = SyncUnit(id: 4).init_zen_fields(ctx = ctx2)
+      let grandchild = SyncUnit(id: 4).init_zen_fields(ctx = ctx2, 
+        flags = flags)
+
       dest.units[0].units.add grandchild
 
       ctx1.boop

@@ -311,18 +311,18 @@ proc zen_init_private*[K, V](tracked: open_array[(K, V)],
   result = Zen.init(tracked.to_table, flags = flags,
     ctx = ctx, id = id, op_ctx = op_ctx)
 
-proc init*[T, O](self: var Zen[T, O], ctx = ctx(), id = "",
-    op_ctx = OperationContext()) =
+proc init*[T, O](self: var Zen[T, O], flags = default_flags, ctx = ctx(), 
+  id = "", op_ctx = OperationContext()) =
 
-  self = Zen[T, O].init(ctx = ctx, id = id, op_ctx = op_ctx)
+  self = Zen[T, O].init(ctx = ctx, flags = flags, id = id, op_ctx = op_ctx)
 
-proc init_zen_fields*[T: object or ref](self: T,
+proc init_zen_fields*[T: object or ref](self: T, flags = default_flags, 
   ctx = ctx()): T {.discardable.} =
 
   result = self
   for field in fields(self.deref):
     when field is Zen:
-      field.init(ctx)
+      field.init(ctx = ctx, flags = flags)
 
 proc init_from*[T: object or ref](_: type T,
   src: T, ctx = ctx()): T {.discardable.} =

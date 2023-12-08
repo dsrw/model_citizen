@@ -136,6 +136,6 @@ type
   ZenSet*[T] = Zen[set[T], T]
   ZenValue*[T] = Zen[T, T]
 
-const default_flags* = {TrackChildren, SyncLocal, SyncRemote}
+const default_flags* = {SyncLocal, SyncRemote}
 
 template zen_ignore* {.pragma.}
