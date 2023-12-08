@@ -216,37 +216,11 @@ proc find_ref*[T](self: ZenContext, value: var T): bool =
 when defined(dump_zen_objects):
   import std / [os, algorithm]
 
-proc free_refs*(self: ZenContext) =
-  privileged
-
-  when defined(dump_zen_objects):
-    let now = get_mono_time()
-    if now > self.dump_at:
-      self.pack_objects
-      write_file(self.id, self.objects.keys.to_seq.reversed.join("\n"))
-      var counts = ""
-      for kind in MessageKind:
-        counts &= $kind & ": " & $self.counts[kind] & "\n"
-      write_file(self.id & "-counts", counts)
-      self.dump_at = now + init_duration(seconds = 10)
-
-  var to_remove: seq[string]
-  for id, free_at in self.freeable_refs:
-    if self.ref_pool[id].references.card == 0 and free_at < get_mono_time():
-      self.ref_pool.del(id)
-      to_remove.add(id)
-    elif self.ref_pool[id].references.card > 0:
-      to_remove.add(id)
-  for id in to_remove:
-    debug "freeing ref", id
-    self.freeable_refs.del(id)
-
-proc can_free*[T: ref RootObj](self: ZenContext, value: T): 
-  tuple[freeable: bool, references: seq[string], missing: bool, id: string] =
+proc can_free*(self: ZenContext, value: ref RootObj, id: string): 
+  tuple[freeable: bool, references: seq[string], missing: bool] =
 
   privileged
-  let id = value.ref_id
-  result.id = id
+
   result.freeable = true
   if id notin self.freeable_refs:
     result.freeable = false
@@ -255,12 +229,11 @@ proc can_free*[T: ref RootObj](self: ZenContext, value: T):
     else:
       result.missing = true
 
-proc free*[T: ref RootObj](self: ZenContext, value: T) =
+proc free_impl(self: ZenContext, value: ref RootObj, id: string) =
   privileged
-
-  let query = self.can_free(value)
-  let id = query.id
+  
   debug "freeing ref", id
+  let query = self.can_free(value, id)
   if not query.freeable:
     let references = query.references.join(", ")
     when defined(zen_lax_free):
@@ -279,6 +252,50 @@ proc free*[T: ref RootObj](self: ZenContext, value: T) =
   assert self.ref_pool[id].references.card == 0
   self.ref_pool.del(id)
   self.freeable_refs.del(id)
+
+proc free*[T: ref RootObj](self: ZenContext, value: T) =
+  self.free_impl(value, value.ref_id)
+
+proc queue_free*[T: ref RootObj](self: ZenContext, value: T) =
+  let id = value.ref_id
+  let query = self.can_free(value, id)
+  if query.freeable:
+    # if it's missing we can't free it, but we try anyway so we don't have to 
+    # reproduce the error logic here
+    self.free(value)
+  elif not query.missing:
+    self.free_queue.add(id)
+    
+proc free_refs*(self: ZenContext) =
+  privileged
+
+  when defined(dump_zen_objects):
+    let now = get_mono_time()
+    if now > self.dump_at:
+      self.pack_objects
+      write_file(self.id, self.objects.keys.to_seq.reversed.join("\n"))
+      var counts = ""
+      for kind in MessageKind:
+        counts &= $kind & ": " & $self.counts[kind] & "\n"
+      write_file(self.id & "-counts", counts)
+      self.dump_at = now + init_duration(seconds = 10)
+
+  let queue = self.free_queue
+  self.free_queue.set_len(0)
+  for id in queue:
+    if id in self.ref_pool:
+      self.free_impl(self.ref_pool[id].obj, id)
+
+  var to_remove: seq[string]
+  for id, free_at in self.freeable_refs:
+    if self.ref_pool[id].references.card == 0 and free_at < get_mono_time():
+      self.ref_pool.del(id)
+      to_remove.add(id)
+    elif self.ref_pool[id].references.card > 0:
+      to_remove.add(id)
+  for id in to_remove:
+    debug "freeing ref", id
+    self.freeable_refs.del(id)
 
 when is_main_module:
   import ./ subscriptions

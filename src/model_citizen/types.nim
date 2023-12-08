@@ -101,6 +101,7 @@ type
     dead_connections: seq[Connection]
     unsubscribed*: seq[string]
     metrics_label*: string
+    free_queue*: seq[string]
     when defined(dump_zen_objects):
       dump_at*: MonoTime
       counts*: array[MessageKind, int]
