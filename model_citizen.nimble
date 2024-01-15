@@ -1,4 +1,4 @@
-version       = "0.19.0"
+version       = "0.19.1"
 author        = "Scott Wadden"
 description   = "Nothing for now"
 license       = "MIT"
@@ -13,5 +13,5 @@ requires(
   "netty",
   "supersnappy",
   "https://github.com/dsrw/nanoid.nim 0.2.1",
-  "metrics"
+  "metrics#51f1227"
 )
