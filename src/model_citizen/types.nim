@@ -1,4 +1,5 @@
 import model_citizen/[deps]
+import pkg/[serialization, json_serialization]
 
 type
   ZID* = uint16
@@ -162,3 +163,12 @@ type
 const default_flags* = {SyncLocal, SyncRemote}
 
 template zen_ignore*() {.pragma.}
+
+proc write_value*[T](w: var JsonWriter, self: set[T]) =
+  write_value(w, self.to_seq)
+
+proc write_value*(w: var JsonWriter, self: ZenContext) =
+  write_value(w, self.id)
+
+proc write_value*(w: var JsonWriter, self: Subscription) =
+  write_value(w, (ctx_id: self.ctx_id, kind: self.kind))

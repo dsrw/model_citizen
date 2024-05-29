@@ -1,17 +1,11 @@
-version       = "0.19.1"
-author        = "Scott Wadden"
-description   = "Nothing for now"
-license       = "MIT"
-src_dir       = "src"
+version = "0.19.2"
+author = "Scott Wadden"
+description = "Nothing for now"
+license = "MIT"
+src_dir = "src"
 
 requires(
-  "nim >= 1.4.8",
-  "https://github.com/treeform/pretty",
-  "threading",
-  "chronicles",
-  "flatty",
-  "netty",
-  "supersnappy",
-  "https://github.com/dsrw/nanoid.nim 0.2.1",
-  "metrics#51f1227"
+  "nim >= 1.4.8", "https://github.com/treeform/pretty", "threading",
+  "chronicles", "flatty", "netty", "supersnappy",
+  "https://github.com/dsrw/nanoid.nim 0.2.1", "metrics#51f1227"
 )
