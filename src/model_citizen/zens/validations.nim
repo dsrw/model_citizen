@@ -1,4 +1,4 @@
-import model_citizen / [core, types]
+import model_citizen/[core, types]
 
 proc valid*[T: ref ZenBase](self: T): bool =
   log_defaults

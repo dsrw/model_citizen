@@ -1,10 +1,16 @@
-import std / [net, tables, times, options, sugar, math]
-import pkg / chronicles, pkg / threading / channels {.all.}
+import std/[net, tables, times, options, sugar, math]
+import pkg/chronicles, pkg/threading/channels {.all.}
 
-import model_citizen / [core, types {.all.}, utils / misc,
-    zens / validations, components / private / global_state]
+import
+  model_citizen/[
+    core,
+    types {.all.},
+    utils/misc,
+    zens/validations,
+    components/private/global_state
+  ]
 
-import ./ private
+import ./private
 
 export ZenContext
 
@@ -19,7 +25,7 @@ proc init_metrics*(_: type ZenContext, labels: varargs[string]) =
     received_message_counter.inc(0, label_values = [label])
     dropped_message_counter.inc(0, label_values = [label])
     boops_counter.inc(0, label_values = [label])
-    
+
 proc pack_objects*(self: ZenContext) =
   if self.objects_need_packing:
     var table: OrderedTable[string, ref ZenBase]
@@ -40,29 +46,38 @@ proc len*(self: ZenContext): int =
   self.pack_objects
   self.objects.len
 
-proc init*(_: type ZenContext,
-  id = "thread-" & $get_thread_id(), listen_address = "",
-  blocking_recv = false, chan_size = 100, buffer = false,
-  max_recv_duration = Duration.default, min_recv_duration = Duration.default,
-  label = "default"): ZenContext =
-
+proc init*(
+    _: type ZenContext,
+    id = "thread-" & $get_thread_id(),
+    listen_address = "",
+    blocking_recv = false,
+    chan_size = 100,
+    buffer = false,
+    max_recv_duration = Duration.default,
+    min_recv_duration = Duration.default,
+    label = "default",
+): ZenContext =
   privileged
   log_scope:
     topics = "model_citizen"
 
   debug "ZenContext initialized", id
 
-  result = ZenContext(id: id, blocking_recv: blocking_recv,
-      max_recv_duration: max_recv_duration,
-      min_recv_duration: min_recv_duration, buffer: buffer, 
-      metrics_label: label)
+  result = ZenContext(
+    id: id,
+    blocking_recv: blocking_recv,
+    max_recv_duration: max_recv_duration,
+    min_recv_duration: min_recv_duration,
+    buffer: buffer,
+    metrics_label: label,
+  )
 
   result.chan = new_chan[Message](elements = chan_size)
   if ?listen_address:
     var listen_address = listen_address
     let parts = listen_address.split(":")
-    do_assert parts.len in [1, 2], "listen_address must be in the format " &
-        "`hostname` or `hostname:port`"
+    do_assert parts.len in [1, 2],
+      "listen_address must be in the format " & "`hostname` or `hostname:port`"
 
     var port = 9632
     if parts.len == 2:
@@ -74,7 +89,7 @@ proc init*(_: type ZenContext,
 
 proc thread_ctx*(t: type Zen): ZenContext =
   if active_ctx == nil:
-    active_ctx = ZenContext.init(id = "thread-" & $get_thread_id() )
+    active_ctx = ZenContext.init(id = "thread-" & $get_thread_id())
   active_ctx
 
 proc thread_ctx*(_: type ZenBase): ZenContext =

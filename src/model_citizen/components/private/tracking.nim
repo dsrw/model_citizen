@@ -1,14 +1,17 @@
-import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks,
-    sugar]
+import
+  std/[importutils, tables, sets, sequtils, algorithm, intsets, locks, sugar]
 
-import pkg / [flatty, supersnappy, threading / channels {.all.}]
-import model_citizen / [core, components / type_registry, zens / contexts,
-    zens / private, types {.all.}]
+import pkg/[flatty, supersnappy, threading/channels {.all.}]
+import
+  model_citizen/
+    [core, components/type_registry, zens/contexts, zens/private, types {.all.}]
 
-proc `-`*[T](a, b: seq[T]): seq[T] = a.filter proc(it: T): bool =
-  it notin b
+proc `-`*[T](a, b: seq[T]): seq[T] =
+  a.filter proc(it: T): bool =
+    it notin b
 
-template `&`*[T](a, b: set[T]): set[T] = a + b
+template `&`*[T](a, b: set[T]): set[T] =
+  a + b
 
 proc trigger_callbacks*[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
   private_access ZenObject[T, O]
@@ -20,9 +23,9 @@ proc trigger_callbacks*[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
       if zid in self.changed_callbacks and zid notin self.paused_zids:
         callback(changes)
 
-proc link_child*[K, V](self: ZenTable[K, V],
-    child, obj: Pair[K, V], field_name = "") =
-
+proc link_child*[K, V](
+    self: ZenTable[K, V], child, obj: Pair[K, V], field_name = ""
+) =
   proc link[S, K, V, T, O](self: S, pair: Pair[K, V], child: Zen[T, O]) =
     private_access ZenBase
     log_defaults
@@ -34,8 +37,8 @@ proc link_child*[K, V](self: ZenTable[K, V],
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
-    debug "linking zen", child = ($child.type, $child.id),
-        self = ($self.type, $self.id)
+    debug "linking zen",
+      child = ($child.type, $child.id), self = ($self.type, $self.id)
 
   if ?child.value:
     self.link(child, child.value)
@@ -57,15 +60,16 @@ proc link_child*[T, O, L](self: ZenSeq[T], child: O, obj: L, field_name = "") =
       change.triggered_by = cast[seq[BaseChange]](changes)
       change.triggered_by_type = $O
       self.trigger_callbacks(@[change])
-    debug "linking zen", child = ($child.type, $child.id),
-        self = ($self.type, $self.id), zid = child.link_zid,
-        child_addr = cast[int](unsafe_addr child[]).to_hex
+    debug "linking zen",
+      child = ($child.type, $child.id),
+      self = ($self.type, $self.id),
+      zid = child.link_zid,
+      child_addr = cast[int](unsafe_addr child[]).to_hex
 
   if ?child:
     link(child)
 
 proc unlink*(self: Zen) =
-
   private_access ZenBase
   log_defaults
   debug "unlinking", id = self.id, zid = self.link_zid
@@ -80,8 +84,11 @@ proc unlink*[T: Pair](pair: T) =
 
 proc link_or_unlink*[T, O](self: Zen[T, O], change: Change[O], link: bool) =
   log_defaults
-  template value(change: Change[Pair]): untyped = change.item.value
-  template value(change: not Change[Pair]): untyped = change.item
+  template value(change: Change[Pair]): untyped =
+    change.item.value
+
+  template value(change: not Change[Pair]): untyped =
+    change.item
 
   if TrackChildren in self.flags:
     if link:
@@ -103,16 +110,16 @@ proc link_or_unlink*[T, O](self: Zen[T, O], change: Change[O], link: bool) =
             if ?field and not field.destroyed:
               field.unlink
 
-proc link_or_unlink*[T, O](self: Zen[T, O],
-  changes: seq[Change[O]], link: bool) =
-
+proc link_or_unlink*[T, O](
+    self: Zen[T, O], changes: seq[Change[O]], link: bool
+) =
   if TrackChildren in self.flags:
     for change in changes:
       self.link_or_unlink(change, link)
 
-proc process_changes*[T](self: Zen[T, T], initial: sink T,
-    op_ctx: OperationContext, touch = false) =
-
+proc process_changes*[T](
+    self: Zen[T, T], initial: sink T, op_ctx: OperationContext, touch = false
+) =
   private_access ZenObject[T, T]
   if initial != self.tracked:
     var add_flags = {Added, Modified}
@@ -120,16 +127,13 @@ proc process_changes*[T](self: Zen[T, T], initial: sink T,
     if touch:
       add_flags.incl Touched
 
-    let changes = @[
-      Change.init(initial, del_flags),
-      Change.init(self.tracked, add_flags)
-    ]
+    let changes =
+      @[Change.init(initial, del_flags), Change.init(self.tracked, add_flags)]
     when T isnot Zen and T is ref:
       self.ctx.ref_count(changes, self.id)
 
     self.publish_changes(changes, op_ctx)
     self.trigger_callbacks(changes)
-
   elif touch:
     let changes = @[Change.init(self.tracked, {Touched})]
     when T isnot Zen and T is ref:
@@ -138,12 +142,20 @@ proc process_changes*[T](self: Zen[T, T], initial: sink T,
     self.publish_changes(changes, op_ctx)
     self.trigger_callbacks(changes)
 
-proc process_changes*[T: seq | set, O](self: Zen[T, O],
-    initial: sink T, op_ctx: OperationContext, touch = T.default) =
+proc process_changes*[T: seq | set, O](
+    self: Zen[T, O],
+    initial: sink T,
+    op_ctx: OperationContext,
+    touch = T.default,
+) =
   private_access ZenObject
 
   let added = (self.tracked - initial).map_it:
-    let changes = if it in touch: {Touched} else: {}
+    let changes =
+      if it in touch:
+        {Touched}
+      else:
+        {}
     Change.init(it, {Added} + changes)
   let removed = (initial - self.tracked).map_it Change.init(it, {Removed})
 
@@ -162,9 +174,11 @@ proc process_changes*[T: seq | set, O](self: Zen[T, O],
   self.publish_changes(changes, op_ctx)
   self.trigger_callbacks(changes)
 
-proc process_changes*[K, V](self: Zen[Table[K, V],
-    Pair[K, V]], initial_table: sink Table[K, V], op_ctx: OperationContext) =
-
+proc process_changes*[K, V](
+    self: Zen[Table[K, V], Pair[K, V]],
+    initial_table: sink Table[K, V],
+    op_ctx: OperationContext,
+) =
   private_access ZenObject
   let
     tracked: seq[Pair[K, V]] = collect:
@@ -175,12 +189,14 @@ proc process_changes*[K, V](self: Zen[Table[K, V],
         Pair[K, V](key: key, value: value)
     added = (tracked - initial).map_it:
       var changes = {Added}
-      if it.key in initial_table: changes.incl Modified
+      if it.key in initial_table:
+        changes.incl Modified
       Change.init(it, changes)
 
     removed = (initial - tracked).map_it:
       var changes = {Removed}
-      if it.key in self.tracked: changes.incl Modified
+      if it.key in self.tracked:
+        changes.incl Modified
       Change.init(it, changes)
 
   self.link_or_unlink(removed, false)
@@ -219,18 +235,18 @@ template mutate*(op_ctx: OperationContext, body: untyped) =
     body
     self.process_changes(initial_values, op_ctx)
 
-proc change*[T, O](self: Zen[T, O], items: T, add: bool,
-    op_ctx: OperationContext) =
-
+proc change*[T, O](
+    self: Zen[T, O], items: T, add: bool, op_ctx: OperationContext
+) =
   mutate(op_ctx):
     if add:
       self.tracked = self.tracked & items
     else:
       self.tracked = self.tracked - items
 
-proc change_and_touch*[T, O](self: Zen[T, O], items: T, add: bool,
-    op_ctx: OperationContext) =
-
+proc change_and_touch*[T, O](
+    self: Zen[T, O], items: T, add: bool, op_ctx: OperationContext
+) =
   mutate_and_touch(touch = items, op_ctx):
     if add:
       self.tracked = self.tracked & items
@@ -247,9 +263,9 @@ proc assign*[O](self: ZenSeq[O], values: seq[O], op_ctx: OperationContext) =
 proc assign*[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
   self.change({value}, add = true, op_ctx = op_ctx)
 
-proc assign*[K, V](self: ZenTable[K, V], pair: Pair[K, V],
-    op_ctx: OperationContext) =
-
+proc assign*[K, V](
+    self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext
+) =
   self.`[]=`(pair.key, pair.value, op_ctx = op_ctx)
 
 proc assign*[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
@@ -261,17 +277,17 @@ proc unassign*[O](self: ZenSeq[O], value: O, op_ctx: OperationContext) =
 proc unassign*[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
   self.change({value}, false, op_ctx = op_ctx)
 
-proc unassign*[K, V](self: ZenTable[K, V], pair: Pair[K, V],
-    op_ctx: OperationContext) =
-
+proc unassign*[K, V](
+    self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext
+) =
   self.del(pair.key, op_ctx = op_ctx)
 
 proc unassign*[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
   discard
 
-proc build_changes[K, V](self: ZenTable[K, V], key: K, value: V,
-    touch: bool): seq[Change[Pair[K, V]]] =
-
+proc build_changes[K, V](
+    self: ZenTable[K, V], key: K, value: V, touch: bool
+): seq[Change[Pair[K, V]]] =
   private_access ZenObject
   assert self.valid
 
@@ -279,10 +295,12 @@ proc build_changes[K, V](self: ZenTable[K, V], key: K, value: V,
 
   if key in self.tracked and self.tracked[key] != value:
     let removed = Change.init(
-      Pair[K, V](key: key, value: self.tracked[key]), {Removed, Modified})
+      Pair[K, V](key: key, value: self.tracked[key]), {Removed, Modified}
+    )
 
     var flags = {Added, Modified}
-    if touch: flags.incl Touched
+    if touch:
+      flags.incl Touched
     let added = Change.init(Pair[K, V](key: key, value: value), flags)
     when value is Zen:
       if ?removed.item.value:
@@ -290,10 +308,8 @@ proc build_changes[K, V](self: ZenTable[K, V], key: K, value: V,
       self.link_or_unlink(added, true)
     self.tracked[key] = value
     changes = @[removed, added]
-
   elif key in self.tracked and touch:
     changes.add Change.init(Pair[K, V](key: key, value: value), {Touched})
-
   elif key notin self.tracked:
     let added = Change.init(Pair[K, V](key: key, value: value), {Added})
     when value is Zen:
@@ -303,9 +319,12 @@ proc build_changes[K, V](self: ZenTable[K, V], key: K, value: V,
 
   result = changes
 
-proc put_all*[K, V](self: ZenTable[K, V], other: Table[K, V], touch: bool,
-    op_ctx: OperationContext) =
-
+proc put_all*[K, V](
+    self: ZenTable[K, V],
+    other: Table[K, V],
+    touch: bool,
+    op_ctx: OperationContext,
+) =
   var changes: seq[Change[Pair[K, V]]] = @[]
   for key, value in other:
     changes.add self.build_changes(key, value, touch)
@@ -316,9 +335,13 @@ proc put_all*[K, V](self: ZenTable[K, V], other: Table[K, V], touch: bool,
   self.publish_changes changes, op_ctx
   self.trigger_callbacks changes
 
-proc put*[K, V](self: ZenTable[K, V], key: K, value: V, touch: bool,
-    op_ctx: OperationContext) =
-
+proc put*[K, V](
+    self: ZenTable[K, V],
+    key: K,
+    value: V,
+    touch: bool,
+    op_ctx: OperationContext,
+) =
   private_access ZenObject
   assert self.valid
 

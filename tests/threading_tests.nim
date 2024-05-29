@@ -1,5 +1,5 @@
-import std / [locks, os, unittest, tables]
-import pkg / [pretty, chronicles]
+import std/[locks, os, unittest, tables]
+import pkg/[pretty, chronicles]
 import model_citizen
 
 var global_lock: Lock
@@ -29,13 +29,14 @@ proc start_worker(ctx: ZenContext) {.thread.} =
   while working:
     ctx.boop
 
-proc run* =
+proc run*() =
   test "basic":
     Zen.thread_ctx.clear
     Zen.thread_ctx = ZenContext.init(id = "main")
     var ctx = ZenContext.init(id = "worker", listen_address = "127.0.0.1")
-    Zen.thread_ctx.subscribe "127.0.0.1", callback = proc() =
-      ctx.boop
+    Zen.thread_ctx.subscribe "127.0.0.1",
+      callback = proc() =
+        ctx.boop
 
     var a = Zen.init("", id = "t1")
     ctx.boop(blocking = true)

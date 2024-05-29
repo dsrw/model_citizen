@@ -1,6 +1,6 @@
-import std / [typetraits, macros, macrocache, tables]
-import model_citizen / [core, components / private / tracking, types {.all.}]
-import ./ [contexts, validations, private]
+import std/[typetraits, macros, macrocache, tables]
+import model_citizen/[core, components/private/tracking, types {.all.}]
+import ./[contexts, validations, private]
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
   private_access ZenObject[T, O]
@@ -72,15 +72,15 @@ proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
   assert self.valid
   self.tracked[index]
 
-proc `[]=`*[K, V](self: ZenTable[K, V], key: K, value: V,
-    op_ctx = OperationContext()) =
-
+proc `[]=`*[K, V](
+    self: ZenTable[K, V], key: K, value: V, op_ctx = OperationContext()
+) =
   self.ctx.setup_op_ctx
   self.put(key, value, touch = false, op_ctx)
 
-proc `[]=`*[T](self: ZenSeq[T], index: SomeOrdinal, value: T,
-    op_ctx = OperationContext()) =
-
+proc `[]=`*[T](
+    self: ZenSeq[T], index: SomeOrdinal, value: T, op_ctx = OperationContext()
+) =
   self.ctx.setup_op_ctx
   assert self.valid
   mutate(op_ctx):
@@ -114,12 +114,13 @@ proc del*[K, V](self: ZenTable[K, V], key: K, op_ctx = OperationContext()) =
   self.ctx.setup_op_ctx
   assert self.valid
   if key in self.tracked:
-    remove(self, key, Pair[K, V](key: key, value: self.tracked[key]), del,
-        op_ctx)
+    remove(
+      self, key, Pair[K, V](key: key, value: self.tracked[key]), del, op_ctx
+    )
 
-proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal,
-    op_ctx = OperationContext()) =
-
+proc del*[T: seq, O](
+    self: Zen[T, O], index: SomeOrdinal, op_ctx = OperationContext()
+) =
   privileged
 
   self.ctx.setup_op_ctx
@@ -130,30 +131,41 @@ proc del*[T: seq, O](self: Zen[T, O], index: SomeOrdinal,
 proc delete*[T, O](self: Zen[T, O], value: O) =
   assert self.valid
   if value in self.tracked:
-    remove(self, value, value, delete,
-        op_ctx = OperationContext(source: [self.ctx.id].to_hash_set))
+    remove(
+      self,
+      value,
+      value,
+      delete,
+      op_ctx = OperationContext(source: [self.ctx.id].to_hash_set),
+    )
 
 proc delete*[K, V](self: ZenTable[K, V], key: K) =
   assert self.valid
   if key in self.tracked:
-    remove(self, key, Pair[K, V](key: key, value: self.tracked[key]), delete,
-        op_ctx = OperationContext())
+    remove(
+      self,
+      key,
+      Pair[K, V](key: key, value: self.tracked[key]),
+      delete,
+      op_ctx = OperationContext(),
+    )
 
 proc delete*[T: seq, O](self: Zen[T, O], index: SomeOrdinal) =
   assert self.valid
   if index < self.tracked.len:
-    remove(self, index, self.tracked[index], delete,
-        op_ctx = OperationContext())
+    remove(
+      self, index, self.tracked[index], delete, op_ctx = OperationContext()
+    )
 
-proc touch*[K, V](self: ZenTable[K, V], pair: Pair[K, V],
-    op_ctx: OperationContext) =
-
+proc touch*[K, V](
+    self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext
+) =
   assert self.valid
   self.put(pair.key, pair.value, touch = true, op_ctx = op_ctx)
 
-proc touch*[T, O](self: ZenTable[T, O], key: T, value: O,
-    op_ctx = OperationContext()) =
-
+proc touch*[T, O](
+    self: ZenTable[T, O], key: T, value: O, op_ctx = OperationContext()
+) =
   assert self.valid
   self.put(key, value, touch = true, op_ctx = op_ctx)
 
@@ -217,8 +229,8 @@ proc `&=`*[T, O](self: Zen[T, O], value: O) =
 
 proc `==`*(a, b: Zen): bool =
   privileged
-  a.is_nil == b.is_nil and a.destroyed == b.destroyed and
-    a.tracked == b.tracked and a.id == b.id
+  a.is_nil == b.is_nil and a.destroyed == b.destroyed and a.tracked == b.tracked and
+    a.id == b.id
 
 proc pause_changes*(self: Zen, zids: varargs[ZID]) =
   assert self.valid
@@ -226,14 +238,16 @@ proc pause_changes*(self: Zen, zids: varargs[ZID]) =
     for zid in self.changed_callbacks.keys:
       self.paused_zids.incl(zid)
   else:
-    for zid in zids: self.paused_zids.incl(zid)
+    for zid in zids:
+      self.paused_zids.incl(zid)
 
 proc resume_changes*(self: Zen, zids: varargs[ZID]) =
   assert self.valid
   if zids.len == 0:
     self.paused_zids = {}
   else:
-    for zid in zids: self.paused_zids.excl(zid)
+    for zid in zids:
+      self.paused_zids.excl(zid)
 
 template pause_impl(self: Zen, zids: untyped, body: untyped) =
   private_access ZenBase
@@ -278,7 +292,8 @@ proc `~==`*[T, O](a: Zen[T, O], b: T): bool =
 proc `~==~`*[T, O](a: Zen[T, O], b: Zen[T, O]): bool =
   value(a) == value(b)
 
-proc `?~`*[T](self: ZenValue[T]): bool = ? ~self
+proc `?~`*[T](self: ZenValue[T]): bool =
+  ? ~self
 
 iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   privileged

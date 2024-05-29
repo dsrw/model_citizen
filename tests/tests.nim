@@ -1,5 +1,6 @@
-import model_citizen, basic_tests, threading_tests, network_tests,
-  publish_tests, object_tests
+import
+  model_citizen, basic_tests, threading_tests, network_tests, publish_tests,
+  object_tests
 
 Zen.bootstrap
 

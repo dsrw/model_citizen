@@ -1,16 +1,17 @@
-import std / [monotimes, tables, macros]
-import std / times except seconds, now
+import std/[monotimes, tables, macros]
+import std/times except seconds, now
 import logging
 
 var saved_stats {.threadvar.}: Table[string, (int, Duration)]
 var next_dump = Monotime.low
 
-template now*: untyped = get_mono_time()
+template now*(): untyped =
+  get_mono_time()
 
 proc seconds*(s: float | int): Duration {.inline.} =
   init_duration(milliseconds = int(s * 1000))
 
-proc maybe_dump_stats* =
+proc maybe_dump_stats*() =
   if now() > next_dump:
     for proc_name, r in saved_stats:
       info "STATS", proc_name, calls = r[0], time = r[1]
@@ -23,7 +24,7 @@ proc stats_impl(enabled: bool, proc_def: NimNode): NimNode =
 
   var body = proc_def.body
   if enabled:
-    body = quote do:
+    body = quote:
       const proc_name = `proc_name`
       var start_time = now()
 
@@ -48,9 +49,10 @@ proc stats_impl(enabled: bool, proc_def: NimNode): NimNode =
       `body`
       sample("done")
   else:
-    body = quote do:
+    body = quote:
       template sample(name = "") =
         discard
+
       `body`
 
   proc_def.body = body

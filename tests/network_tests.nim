@@ -1,24 +1,30 @@
-import std / [tables, sugar, unittest]
-import pkg / [flatty, chronicles, pretty]
+import std/[tables, sugar, unittest]
+import pkg/[flatty, chronicles, pretty]
 import model_citizen
-from std / times import init_duration
+from std/times import init_duration
 
 const recv_duration = init_duration(milliseconds = 10)
 
-proc run* =
+proc run*() =
   test "4 way sync":
     var
       ctx1 = ZenContext.init(id = "ctx1")
-      ctx2 = ZenContext.init(id = "ctx2", listen_address = "127.0.0.1",
-          min_recv_duration = recv_duration, blocking_recv = true)
-      ctx3 = ZenContext.init(id = "ctx3",
-          min_recv_duration = recv_duration, blocking_recv = true)
+      ctx2 = ZenContext.init(
+        id = "ctx2",
+        listen_address = "127.0.0.1",
+        min_recv_duration = recv_duration,
+        blocking_recv = true,
+      )
+      ctx3 = ZenContext.init(
+        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true
+      )
       ctx4 = ZenContext.init(id = "ctx4")
 
     ctx2.subscribe(ctx1)
     ctx3.subscribe(ctx4)
-    ctx3.subscribe "127.0.0.1", callback = proc() =
-      ctx2.boop(blocking = false)
+    ctx3.subscribe "127.0.0.1",
+      callback = proc() =
+        ctx2.boop(blocking = false)
 
     var
       a = ZenValue[string].init(id = "test1", ctx = ctx1)
@@ -42,10 +48,15 @@ proc run* =
     var
       count = 0
       ctx1 = ZenContext.init(id = "ctx1")
-      ctx2 = ZenContext.init(id = "ctx2", listen_address = "127.0.0.1",
-          min_recv_duration = recv_duration, blocking_recv = true)
-      ctx3 = ZenContext.init(id = "ctx3",
-          min_recv_duration = recv_duration, blocking_recv = true)
+      ctx2 = ZenContext.init(
+        id = "ctx2",
+        listen_address = "127.0.0.1",
+        min_recv_duration = recv_duration,
+        blocking_recv = true,
+      )
+      ctx3 = ZenContext.init(
+        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true
+      )
       ctx4 = ZenContext.init(id = "ctx4")
 
     var
@@ -67,8 +78,9 @@ proc run* =
     check b.value == @["a1", "a2"]
 
     ctx4.boop
-    ctx3.subscribe "127.0.0.1", callback = proc() =
-      ctx2.boop(blocking = false)
+    ctx3.subscribe "127.0.0.1",
+      callback = proc() =
+        ctx2.boop(blocking = false)
 
     ctx4.boop
 
@@ -83,17 +95,21 @@ proc run* =
     ctx2.close
 
   test "nested collection":
-    type
-      Unit = object
-        code: ZenValue[string]
+    type Unit = object
+      code: ZenValue[string]
 
     var
       count = 0
       ctx1 = ZenContext.init(id = "ctx1")
-      ctx2 = ZenContext.init(id = "ctx2", listen_address = "127.0.0.1",
-          min_recv_duration = recv_duration, blocking_recv = true)
-      ctx3 = ZenContext.init(id = "ctx3",
-          min_recv_duration = recv_duration, blocking_recv = true)
+      ctx2 = ZenContext.init(
+        id = "ctx2",
+        listen_address = "127.0.0.1",
+        min_recv_duration = recv_duration,
+        blocking_recv = true,
+      )
+      ctx3 = ZenContext.init(
+        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true
+      )
       ctx4 = ZenContext.init(id = "ctx4")
 
     var
@@ -115,8 +131,9 @@ proc run* =
     check b.value == @["a1", "a2"]
 
     ctx4.boop
-    ctx3.subscribe "127.0.0.1", callback = proc() =
-      ctx2.boop(blocking = false)
+    ctx3.subscribe "127.0.0.1",
+      callback = proc() =
+        ctx2.boop(blocking = false)
 
     ctx4.boop
 

@@ -1,9 +1,9 @@
-import std / [tables, intsets, locks]
+import std/[tables, intsets, locks]
 
-import pkg / metrics
+import pkg/metrics
 export inc, set
 
-import model_citizen / types {.all.}
+import model_citizen/types {.all.}
 
 var active_ctx* {.threadvar.}: ZenContext
 
@@ -19,29 +19,29 @@ template with_lock*(body: untyped) =
     locks.with_lock(type_registry_lock):
       body
 
-declare_public_gauge pressure_gauge, "Thread channel pressure", 
-  name = "zen_pressure", labels = ["ctx_label"]
+declare_public_gauge pressure_gauge,
+  "Thread channel pressure", name = "zen_pressure", labels = ["ctx_label"]
 
-declare_public_gauge object_pool_gauge, "Object pool size", 
-  name = "zen_object_pool", labels = ["ctx_label"]
+declare_public_gauge object_pool_gauge,
+  "Object pool size", name = "zen_object_pool", labels = ["ctx_label"]
 
-declare_public_gauge ref_pool_gauge, "Ref pool size", 
-  name = "zen_ref_pool", labels = ["ctx_label"]
+declare_public_gauge ref_pool_gauge,
+  "Ref pool size", name = "zen_ref_pool", labels = ["ctx_label"]
 
-declare_public_gauge chan_remaining_gauge, "Free channel slots", name = "zen_chan_remaining", 
-  labels = ["ctx_label"]
+declare_public_gauge chan_remaining_gauge,
+  "Free channel slots", name = "zen_chan_remaining", labels = ["ctx_label"]
 
-declare_public_gauge buffer_gauge, "Buffer size", name = "zen_channel_buffer", 
-  labels = ["ctx_label"]
+declare_public_gauge buffer_gauge,
+  "Buffer size", name = "zen_channel_buffer", labels = ["ctx_label"]
 
-declare_public_counter sent_message_counter, "Messages sent", 
-  name = "zen_sent_messages", labels = ["ctx_label"]
+declare_public_counter sent_message_counter,
+  "Messages sent", name = "zen_sent_messages", labels = ["ctx_label"]
 
-declare_public_counter received_message_counter, "Messages received", 
-  name = "zen_received_messages", labels = ["ctx_label"]
+declare_public_counter received_message_counter,
+  "Messages received", name = "zen_received_messages", labels = ["ctx_label"]
 
-declare_public_counter dropped_message_counter, "Messages dropped", 
-  name = "zen_dropped_messages", labels = ["ctx_label"]
+declare_public_counter dropped_message_counter,
+  "Messages dropped", name = "zen_dropped_messages", labels = ["ctx_label"]
 
-declare_public_counter boops_counter, "Boops", 
-  name = "zen_boops", labels = ["ctx_label"]
+declare_public_counter boops_counter,
+  "Boops", name = "zen_boops", labels = ["ctx_label"]

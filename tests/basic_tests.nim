@@ -1,13 +1,16 @@
-import std / [tables, sequtils, sugar, macros, typetraits, sets, isolation,
-    unittest, deques, importutils, monotimes, os]
-import pkg / [pretty, chronicles, netty]
+import
+  std/[
+    tables, sequtils, sugar, macros, typetraits, sets, isolation, unittest,
+    deques, importutils, monotimes, os
+  ]
+import pkg/[pretty, chronicles, netty]
 import model_citizen
-from std / times import init_duration
-import model_citizen / [types {.all.}, zens {.all.}, zens / contexts {.all.}]
+from std/times import init_duration
+import model_citizen/[types {.all.}, zens {.all.}, zens/contexts {.all.}]
 
-import model_citizen / components / type_registry
+import model_citizen/components/type_registry
 
-proc run* =
+proc run*() =
   var change_count = 0
   proc count_changes(obj: auto): ZID {.discardable.} =
     obj.changes:
@@ -25,8 +28,9 @@ proc run* =
     self.track proc(changes: seq[Change[O]]) {.gcsafe.} =
       for change in changes:
         let expectation = expectations.pop_first()
-        if not (expectation[0] in change.changes and
-          expectation[1] == change.item):
+        if not (
+          expectation[0] in change.changes and expectation[1] == change.item
+        ):
           error "unsatisfied expectation", expectation
     body
     if expectations.len > 0:
@@ -51,15 +55,20 @@ proc run* =
       debug "remote run"
       const recv_duration = init_duration(milliseconds = 10)
       var
-        ctx1 {.inject.} = ZenContext.init(id = "ctx1",
-            listen_address = "127.0.0.1", min_recv_duration = recv_duration,
-            blocking_recv = true)
+        ctx1 {.inject.} = ZenContext.init(
+          id = "ctx1",
+          listen_address = "127.0.0.1",
+          min_recv_duration = recv_duration,
+          blocking_recv = true,
+        )
 
-        ctx2 {.inject.} = ZenContext.init(id = "ctx2",
-            min_recv_duration = recv_duration, blocking_recv = true)
+        ctx2 {.inject.} = ZenContext.init(
+          id = "ctx2", min_recv_duration = recv_duration, blocking_recv = true
+        )
 
-      ctx2.subscribe "127.0.0.1", callback = proc() =
-        ctx1.boop(blocking = false)
+      ctx2.subscribe "127.0.0.1",
+        callback = proc() =
+          ctx1.boop(blocking = false)
 
       Zen.thread_ctx = ctx1
       ctx1.boop(blocking = false)
@@ -68,14 +77,17 @@ proc run* =
 
       ctx1.close
       ctx2.close
+
   template local_and_remote(body) =
     local(body)
     remote(body)
 
   test "sets":
-    type
-      TestFlags = enum
-        Flag1, Flag2, Flag3, Flag4
+    type TestFlags = enum
+      Flag1
+      Flag2
+      Flag3
+      Flag4
 
     var s = ~{Flag1, Flag2}
 
@@ -95,8 +107,10 @@ proc run* =
       added = {}
       removed = {}
       for c in changes:
-        if Added in c.changes: added.incl(c.item)
-        elif Removed in c.changes: removed.incl(c.item)
+        if Added in c.changes:
+          added.incl(c.item)
+        elif Removed in c.changes:
+          removed.incl(c.item)
 
     s += Flag3
     check:
@@ -121,8 +135,10 @@ proc run* =
       also_added = {}
       also_removed = {}
       for c in changes:
-        if Added in c.changes: also_added.incl(c.item)
-        elif Removed in c.changes: also_removed.incl(c.item)
+        if Added in c.changes:
+          also_added.incl(c.item)
+        elif Removed in c.changes:
+          also_removed.incl(c.item)
 
     s.untrack(zid)
     s ~= {Flag2, Flag3}
@@ -156,14 +172,19 @@ proc run* =
     s.untrack(id)
 
     id = s.count_changes
-    1.changes: s += "hello"
+    1.changes:
+      s += "hello"
     check s.len == 1
-    1.changes: s.del(0)
+    1.changes:
+      s.del(0)
     check s.len == 0
 
   test "set literal":
     type TestFlags = enum
-      Flag1, Flag2, Flag3
+      Flag1
+      Flag2
+      Flag3
+
     var a = ~{Flag1, Flag3}
 
   test "table literals":
@@ -178,9 +199,12 @@ proc run* =
     var a = ZenTable[string, string].init
     let zid = a.count_changes
 
-    1.changes: a["hello"] = "world"
-    0.changes: a["hello"] = "world"
-    1.changes: a.touch("hello", "world")
+    1.changes:
+      a["hello"] = "world"
+    0.changes:
+      a["hello"] = "world"
+    1.changes:
+      a.touch("hello", "world")
     a.untrack_all
 
   test "primitive_table":
@@ -199,45 +223,67 @@ proc run* =
 
   test "nested_changes":
     let flags = {TrackChildren, SyncLocal, SyncRemote}
-    type Flags = enum Flag1, Flag2
-    let buffers = ~({
-      1: ~({
-        1: ~([~{Flag1}, ~{Flag2}], flags = flags)
-      }, flags = flags)
-    }, flags = flags)
+    type Flags = enum
+      Flag1
+      Flag2
+
+    let buffers =
+      ~(
+        {1: ~({1: ~([~{Flag1}, ~{Flag2}], flags = flags)}, flags = flags)},
+        flags = flags,
+      )
     var id = buffers.count_changes
 
     # we're watching the top level object. Any child change will
     # come through as a single Modified change on the top level child,
     # regardless of how deep it is or how much actually changed
 
-    1.changes: buffers[1][1][0] += Flag2
-    0.changes: buffers[1][1][0] += Flag1 # already there. No change
-    1.changes: buffers[1][1][0] -= {Flag1, Flag2}
-    1.changes: buffers[1][1] += ~{Flag1, Flag2}
-    1.changes: buffers[1][1] = ~([~{Flag1}], flags = flags)
+    1.changes:
+      buffers[1][1][0] += Flag2
+    0.changes:
+      buffers[1][1][0] += Flag1
+      # already there. No change
+    1.changes:
+      buffers[1][1][0] -= {Flag1, Flag2}
+    1.changes:
+      buffers[1][1] += ~{Flag1, Flag2}
+    1.changes:
+      buffers[1][1] = ~([~{Flag1}], flags = flags)
 
     # unlink
     buffers[1][1][0].clear
     let child = buffers[1][1][0]
     buffers[1][1].del 0
-    0.changes: child += Flag1
+    0.changes:
+      child += Flag1
     buffers[1][1] += child
-    1.changes: child += Flag2
+    1.changes:
+      child += Flag2
 
-    2.changes: buffers[1] = nil # Added and Removed changes
+    2.changes:
+      buffers[1] = nil
+      # Added and Removed changes
     buffers.untrack(id)
 
-    buffers[1] = ~({1: ~([~({Flag1}, flags = flags)], flags = flags)}, flags = flags)
+    buffers[1] =
+      ~({1: ~([~({Flag1}, flags = flags)], flags = flags)}, flags = flags)
     id = buffers[1][1][0].count_changes
-    1.changes: buffers[1][1][0] += {Flag1, Flag2}
-    0.changes: buffers[1][1][0] += {Flag1, Flag2}
-    2.changes: buffers[1][1][0] -= {Flag1, Flag2}
-    1.changes: buffers[1][1][0].touch Flag1
-    0.changes: buffers[1][1][0] += Flag1
-    1.changes: buffers[1][1][0].touch Flag1
-    2.changes: buffers[1][1][0].touch {Flag1, Flag2}
-    2.changes: buffers[1][1][0].touch {Flag1, Flag2}
+    1.changes:
+      buffers[1][1][0] += {Flag1, Flag2}
+    0.changes:
+      buffers[1][1][0] += {Flag1, Flag2}
+    2.changes:
+      buffers[1][1][0] -= {Flag1, Flag2}
+    1.changes:
+      buffers[1][1][0].touch Flag1
+    0.changes:
+      buffers[1][1][0] += Flag1
+    1.changes:
+      buffers[1][1][0].touch Flag1
+    2.changes:
+      buffers[1][1][0].touch {Flag1, Flag2}
+    2.changes:
+      buffers[1][1][0].touch {Flag1, Flag2}
 
     buffers[1][1][0].untrack(id)
 
@@ -255,7 +301,8 @@ proc run* =
     buffers.untrack(id)
 
     buffers.count_changes
-    1.changes: buffers.del(1)
+    1.changes:
+      buffers.del(1)
     check 1 notin buffers
 
   test "comparable aliases":
@@ -269,7 +316,9 @@ proc run* =
 
   test "init from type":
     type TestFlag = enum
-      Flag1, Flag2
+      Flag1
+      Flag2
+
     var a = ~seq[int]
     var b = ~set[TestFlag]
     check:
@@ -279,7 +328,8 @@ proc run* =
   test "nested_triggers":
     type
       UnitFlags = enum
-        Targeted, Highlighted
+        Targeted
+        Highlighted
 
       Unit = ref object of RootRef
         id: int
@@ -287,9 +337,9 @@ proc run* =
         units: Zen[seq[Unit], Unit]
         flags: ZenSet[UnitFlags]
 
-    proc init(_: type Unit, id = 0, flags = 
-      {TrackChildren, SyncLocal, SyncRemote}): Unit =
-
+    proc init(
+        _: type Unit, id = 0, flags = {TrackChildren, SyncLocal, SyncRemote}
+    ): Unit =
       result = Unit(id: id)
       result.units = ~(seq[Unit], flags)
       result.flags = ~(set[UnitFlags], flags)
@@ -297,9 +347,11 @@ proc run* =
     var a = Unit.init
     var id = a.units.count_changes
     var b = Unit.init
-    1.changes: a.units.add b
+    1.changes:
+      a.units.add b
     var c = Unit.init
-    1.changes: b.units.add c
+    1.changes:
+      b.units.add c
     a.units.untrack(id)
 
     var triggered_by {.threadvar.}: seq[seq[BaseChange]]
@@ -325,15 +377,26 @@ proc run* =
     a = Unit.init(flags = {SyncLocal, SyncRemote})
     id = a.units.count_changes
     b = Unit.init
-    1.changes: a.units.add b
+    1.changes:
+      a.units.add b
     c = Unit.init
-    0.changes: b.units.add c
+    0.changes:
+      b.units.add c
     a.units.untrack(id)
 
   test "primitives":
     let a = ZenValue[int].init
-    a.assert_changes {Removed: 0, Added: 5, Removed: 5, Added: 10, Touched: 10,
-                      Removed: 10, Touched: 11, Removed: 11, Added: 12}:
+    a.assert_changes {
+      Removed: 0,
+      Added: 5,
+      Removed: 5,
+      Added: 10,
+      Touched: 10,
+      Removed: 10,
+      Touched: 11,
+      Removed: 11,
+      Added: 12
+    }:
       a ~= 5
       a ~= 10
       a.touch 10
@@ -352,7 +415,7 @@ proc run* =
     type ARef = ref object of RootObj
       id: int
 
-    let (r1, r2, r3) = (ARef(id: 1), ARef(id:2), ARef(id:3))
+    let (r1, r2, r3) = (ARef(id: 1), ARef(id: 2), ARef(id: 3))
 
     let a = ~r1
     a.assert_changes {Removed: r1, Added: r2, Removed: r2, Added: r3}:
@@ -362,21 +425,29 @@ proc run* =
   test "pausing":
     var s = ZenValue[string].init
     let zid = s.count_changes
-    2.changes: s ~= "one"
+    2.changes:
+      s ~= "one"
     s.pause zid:
-      0.changes: s ~= "two"
-    2.changes: s ~= "three"
+      0.changes:
+        s ~= "two"
+    2.changes:
+      s ~= "three"
     let zids = @[zid, 1234]
     s.pause zids:
-      0.changes: s ~= "four"
-    2.changes: s ~= "five"
+      0.changes:
+        s ~= "four"
+    2.changes:
+      s ~= "five"
     s.pause zid, 1234:
-      0.changes: s ~= "six"
+      0.changes:
+        s ~= "six"
     2.changes:
       s ~= "seven"
     s.pause:
-      0.changes: s ~= "eight"
-    2.changes: s ~= "nine"
+      0.changes:
+        s ~= "eight"
+    2.changes:
+      s ~= "nine"
 
     var calls = 0
     s.changes:
@@ -404,15 +475,15 @@ proc run* =
     check changed == true
 
   test "init_props":
-    type
-      Model = ref object
-        list: ZenSeq[int]
-        field: string
-        zen_field: ZenValue[string]
+    type Model = ref object
+      list: ZenSeq[int]
+      field: string
+      zen_field: ZenValue[string]
 
     proc init(_: type Model): Model =
       result = Model()
       result.init_zen_fields
+
     let m = Model.init
     m.zen_field ~= "test"
     check m.zen_field ~== "test"
@@ -524,11 +595,10 @@ proc run* =
       check ctx2.len == 0
 
   test "sync nested":
-    type
-      Unit = ref object of RootObj
-        units: ZenSeq[Unit]
-        code: ZenValue[string]
-        id: int
+    type Unit = ref object of RootObj
+      units: ZenSeq[Unit]
+      code: ZenValue[string]
+      id: int
 
     Zen.register(Unit, false)
     local_and_remote:
@@ -545,10 +615,9 @@ proc run* =
       check ru1.units[0].code.ctx == ctx2
 
   test "zentable of tables":
-    type
-      Shared = ref object of RootObj
-        id: string
-        edits: ZenTable[int, Table[string, string]]
+    type Shared = ref object of RootObj
+      id: string
+      edits: ZenTable[int, Table[string, string]]
 
     Zen.register(Shared, false)
 
@@ -568,20 +637,17 @@ proc run* =
       check dest.value.edits[1].len == 2
       check dest.value.edits[1]["2"] == "two"
 
-      container.value.edits += {
-        2: {"3": "three"}.to_table,
-        3: {"4": "four"}.to_table
-      }.to_table
+      container.value.edits +=
+        {2: {"3": "three"}.to_table, 3: {"4": "four"}.to_table}.to_table
 
       ctx2.boop
       check dest.value.edits.len == 3
       check dest.value.edits[3]["4"] == "four"
 
   test "zentable of zentables":
-    type
-      Block = ref object of RootObj
-        id: string
-        chunks: ZenTable[int, ZenTable[string, string]]
+    type Block = ref object of RootObj
+      id: string
+      chunks: ZenTable[int, ZenTable[string, string]]
 
     local_and_remote:
       var container: ZenValue[Block]
@@ -608,9 +674,8 @@ proc run* =
       check shared.chunks[1]["hello"] == "goodbye"
 
   test "free refs":
-    type
-      RefType = ref object of RootObj
-        id: string
+    type RefType = ref object of RootObj
+      id: string
 
     Zen.register(RefType, false)
 
@@ -663,7 +728,9 @@ proc run* =
 
   test "sync set":
     type Flags = enum
-      One, Two, Three
+      One
+      Two
+      Three
 
     local_and_remote:
       let msg = "hello world"
@@ -690,9 +757,8 @@ proc run* =
       check z2.len == 2
 
   test "pointer to ref":
-    type
-      RefType = ref object of RootObj
-        id: string
+    type RefType = ref object of RootObj
+      id: string
 
     local_and_remote:
       let a = RefType(id: "a")
@@ -737,7 +803,8 @@ proc run* =
   test "triggered by sync":
     type
       UnitFlags = enum
-        Targeted, Highlighted
+        Targeted
+        Highlighted
 
       SyncUnit = ref object of RootRef
         id: int
@@ -786,8 +853,8 @@ proc run* =
       check dest_change_id == 3
 
       Zen.thread_ctx = ctx2
-      let grandchild = SyncUnit(id: 4).init_zen_fields(ctx = ctx2, 
-        flags = flags)
+      let grandchild =
+        SyncUnit(id: 4).init_zen_fields(ctx = ctx2, flags = flags)
 
       dest.units[0].units.add grandchild
 

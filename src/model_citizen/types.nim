@@ -1,16 +1,31 @@
-import model_citizen / [deps]
+import model_citizen/[deps]
 
 type
   ZID* = uint16
 
   ZenFlags* = enum
-    TrackChildren, SyncLocal, SyncRemote, SyncAllNoOverwrite
+    TrackChildren
+    SyncLocal
+    SyncRemote
+    SyncAllNoOverwrite
 
   ChangeKind* = enum
-    Created, Added, Removed, Modified, Touched, Closed
+    Created
+    Added
+    Removed
+    Modified
+    Touched
+    Closed
 
   MessageKind = enum
-    Blank, Create, Destroy, Assign, Unassign, Touch, Subscribe, Packed
+    Blank
+    Create
+    Destroy
+    Assign
+    Unassign
+    Touch
+    Subscribe
+    Packed
 
   BaseChange* = ref object of RootObj
     changes*: set[ChangeKind]
@@ -24,11 +39,8 @@ type
     when defined(zen_trace):
       trace*: string
 
-  PackedMessageOperation* = tuple
-    kind: MessageKind
-    ref_id: int
-    change_object_id: string
-    obj: string
+  PackedMessageOperation* =
+    tuple[kind: MessageKind, ref_id: int, change_object_id: string, obj: string]
 
   Message = object
     kind*: MessageKind
@@ -44,8 +56,13 @@ type
       id*: int
       debug*: string
 
-  CreateInitializer = proc(bin: string, ctx: ZenContext, id: string,
-      flags: set[ZenFlags], op_ctx: OperationContext)
+  CreateInitializer = proc(
+    bin: string,
+    ctx: ZenContext,
+    id: string,
+    flags: set[ZenFlags],
+    op_ctx: OperationContext,
+  )
 
   Change*[O] = ref object of BaseChange
     item*: O
@@ -61,10 +78,13 @@ type
   RegisteredType = object
     tid*: int
     stringify*: proc(self: ref RootObj): string {.no_side_effect.}
-    parse*: proc(ctx: ZenContext, clone_from: string):
-        ref RootObj {.no_side_effect.}
+    parse*:
+      proc(ctx: ZenContext, clone_from: string): ref RootObj {.no_side_effect.}
 
-  SubscriptionKind* = enum Blank, Local, Remote
+  SubscriptionKind* = enum
+    Blank
+    Local
+    Remote
 
   Subscription* = ref object
     ctx_id*: string
@@ -113,14 +133,16 @@ type
     paused_zids: set[ZID]
     bound_zids: seq[ZID]
     flags*: set[ZenFlags]
-    build_message: proc(self: ref ZenBase, change: BaseChange, id: string,
-        trace: string): Message {.gcsafe.}
+    build_message: proc(
+      self: ref ZenBase, change: BaseChange, id: string, trace: string
+    ): Message {.gcsafe.}
 
-    publish_create: proc(sub = Subscription(), broadcast = false,
-        op_ctx = OperationContext()) {.gcsafe.}
+    publish_create: proc(
+      sub = Subscription(), broadcast = false, op_ctx = OperationContext()
+    ) {.gcsafe.}
 
-    change_receiver: proc(self: ref ZenBase, msg: Message,
-        op_ctx: OperationContext) {.gcsafe.}
+    change_receiver:
+      proc(self: ref ZenBase, msg: Message, op_ctx: OperationContext) {.gcsafe.}
 
     ctx*: ZenContext
 
@@ -139,4 +161,4 @@ type
 
 const default_flags* = {SyncLocal, SyncRemote}
 
-template zen_ignore* {.pragma.}
+template zen_ignore*() {.pragma.}

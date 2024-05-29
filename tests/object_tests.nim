@@ -1,9 +1,9 @@
-import std / [unittest]
-import pkg / [pretty, chronicles]
+import std/[unittest]
+import pkg/[pretty, chronicles]
 import model_citizen
-import ./ object_tests_types
+import ./object_tests_types
 
-proc run* =
+proc run*() =
   test "generate properties":
     var boop = Boop().init_zen_fields
     var bloop = Bloop().init_zen_fields

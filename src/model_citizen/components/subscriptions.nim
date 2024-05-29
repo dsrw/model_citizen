@@ -1,15 +1,16 @@
-import std / [importutils, tables, sets, sequtils, algorithm, intsets, locks,
-  math]
+import
+  std/[importutils, tables, sets, sequtils, algorithm, intsets, locks, math]
 
-import pkg / threading / channels {.all.}
-import pkg / [flatty, supersnappy]
+import pkg/threading/channels {.all.}
+import pkg/[flatty, supersnappy]
 
-import model_citizen / [core, types {.all.}], model_citizen / zens /
-  [contexts, private, initializers {.all.}]
+import
+  model_citizen/[core, types {.all.}],
+  model_citizen/zens/[contexts, private, initializers {.all.}]
 
-import model_citizen / components / [private / global_state]
+import model_citizen/components/[private/global_state]
 
-import ./ type_registry
+import ./type_registry
 
 var flatty_ctx {.threadvar.}: ZenContext
 
@@ -22,10 +23,14 @@ privileged
 proc `$`*(self: Subscription): string =
   \"{self.kind} subscription for {self.ctx_id}"
 
-proc boop*(self: ZenContext,
-    messages = int.high, max_duration = self.max_recv_duration, min_duration =
-    self.min_recv_duration, blocking = self.blocking_recv,
-    poll = true) {.gcsafe.}
+proc boop*(
+  self: ZenContext,
+  messages = int.high,
+  max_duration = self.max_recv_duration,
+  min_duration = self.min_recv_duration,
+  blocking = self.blocking_recv,
+  poll = true,
+) {.gcsafe.}
 
 proc to_flatty*[T: ref RootObj](s: var string, x: T) =
   when x is ref ZenBase:
@@ -37,8 +42,11 @@ proc to_flatty*[T: ref RootObj](s: var string, x: T) =
     when compiles(x.id):
       if ?x and x.lookup_type(registered_type):
         s.to_flatty true
-        let obj: FlatRef = (tid: registered_type.tid, ref_id: x.ref_id,
-            item: registered_type.stringify(x))
+        let obj: FlatRef = (
+          tid: registered_type.tid,
+          ref_id: x.ref_id,
+          item: registered_type.stringify(x),
+        )
 
         flatty.to_flatty(s, obj)
         return
@@ -117,9 +125,13 @@ proc flush_buffers*(self: ZenContext) =
       for msg in buffer:
         sub.send_or_buffer(msg, true)
 
-proc send*(self: ZenContext, sub: Subscription, msg: sink Message,
-    op_ctx = OperationContext(), flags = default_flags) =
-
+proc send*(
+    self: ZenContext,
+    sub: Subscription,
+    msg: sink Message,
+    op_ctx = OperationContext(),
+    flags = default_flags,
+) =
   log_defaults("model_citizen networking")
   sent_message_counter.inc(label_values = [self.metrics_label])
   when defined(zen_trace):
@@ -158,16 +170,23 @@ proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
   for sub in self.ctx.subscribers:
     if sub.ctx_id notin op_ctx.source:
       when defined(zen_trace):
-        self.ctx.send(sub, Message(kind: Destroy, object_id: self.id,
-            trace: \"{get_stack_trace()}\n\nop:\n{op_ctx.trace}"),
-            op_ctx, self.flags)
-
+        self.ctx.send(
+          sub,
+          Message(
+            kind: Destroy,
+            object_id: self.id,
+            trace: \"{get_stack_trace()}\n\nop:\n{op_ctx.trace}",
+          ),
+          op_ctx,
+          self.flags,
+        )
       else:
-        self.ctx.send(sub, Message(kind: Destroy, object_id: self.id),
-            op_ctx, self.flags)
+        self.ctx.send(
+          sub, Message(kind: Destroy, object_id: self.id), op_ctx, self.flags
+        )
 
   self.ctx.boop_reactor
-    
+
 proc pack_messages(msgs: seq[Message]): seq[Message] =
   if msgs.len > 1:
     var packed_msg =
@@ -177,14 +196,13 @@ proc pack_messages(msgs: seq[Message]): seq[Message] =
     for msg in msgs:
       if msg.object_id != "":
         assert packed_msg.object_id == "" or
-            packed_msg.object_id == msg.object_id
+          packed_msg.object_id == msg.object_id
 
         packed_msg.object_id = msg.object_id
       if msg.type_id != 0:
-        assert packed_msg.type_id == 0 or
-            packed_msg.type_id == msg.type_id
+        assert packed_msg.type_id == 0 or packed_msg.type_id == msg.type_id
 
-        packed_msg.type_id= msg.type_id
+        packed_msg.type_id = msg.type_id
       ops.add (msg.kind, msg.ref_id, msg.change_object_id, msg.obj)
 
     packed_msg.obj = ops.to_flatty
@@ -192,9 +210,9 @@ proc pack_messages(msgs: seq[Message]): seq[Message] =
   else:
     result = msgs
 
-proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
-    op_ctx: OperationContext) =
-
+proc publish_changes*[T, O](
+    self: Zen[T, O], changes: seq[Change[O]], op_ctx: OperationContext
+) =
   privileged
   log_defaults("model_citizen publishing")
   debug "publish_changes", ctx = self.ctx, op_ctx
@@ -212,10 +230,11 @@ proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
           # removed from a collection.
           debug "skipping changes"
           continue
-        let trace = when defined(zen_trace):
-          \"{get_stack_trace()}\n\nop:\n{op_ctx.trace}"
-        else:
-          ""
+        let trace =
+          when defined(zen_trace):
+            \"{get_stack_trace()}\n\nop:\n{op_ctx.trace}"
+          else:
+            ""
         msgs.add obj.build_message(obj, change, id, trace)
 
     msgs = pack_messages(msgs)
@@ -227,22 +246,25 @@ proc publish_changes*[T, O](self: Zen[T, O], changes: seq[Change[O]],
 
     self.ctx.boop_reactor
 
-proc add_subscriber*(self: ZenContext, sub: Subscription, push_all: bool,
-    remote_objects: HashSet[string]) =
-
+proc add_subscriber*(
+    self: ZenContext,
+    sub: Subscription,
+    push_all: bool,
+    remote_objects: HashSet[string],
+) =
   self.pack_objects
   debug "adding subscriber", sub
   self.subscribers.add sub
   for id in self.objects.keys.to_seq.reversed:
     if id notin remote_objects or push_all:
-      debug "sending object on subscribe", from_ctx = self.id,
-          to_ctx = sub.ctx_id, zen_id = id
+      debug "sending object on subscribe",
+        from_ctx = self.id, to_ctx = sub.ctx_id, zen_id = id
 
       let zen = self.objects[id]
       zen.publish_create sub
     else:
       debug "not sending object because remote ctx already has it",
-          from_ctx = self.id, to_ctx = sub.ctx_id, zen_id = id
+        from_ctx = self.id, to_ctx = sub.ctx_id, zen_id = id
 
 proc unsubscribe*(self: ZenContext, sub: Subscription) =
   if sub.kind == Remote:
@@ -267,8 +289,11 @@ proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
   for id in self.objects.keys:
     remote_objects.incl id
   self.subscribing = true
-  ctx.add_subscriber(Subscription(kind: Local, chan: self.chan,
-      ctx_id: self.id), push_all = bidirectional, remote_objects)
+  ctx.add_subscriber(
+    Subscription(kind: Local, chan: self.chan, ctx_id: self.id),
+    push_all = bidirectional,
+    remote_objects,
+  )
 
   self.boop(blocking = false, min_duration = Duration.default)
   self.subscribing = false
@@ -277,11 +302,14 @@ proc subscribe*(self: ZenContext, ctx: ZenContext, bidirectional = true) =
   if bidirectional:
     ctx.subscribe(self, bidirectional = false)
 
-proc subscribe*(self: ZenContext, address: string, bidirectional = true,
-    callback: proc() {.gcsafe.} = nil) =
-    # callback param is a hack to allow testing networked contexts on the same
-    # thread. Not meant to be used in non-test code
-
+proc subscribe*(
+    self: ZenContext,
+    address: string,
+    bidirectional = true,
+    callback: proc() {.gcsafe.} = nil,
+) =
+  # callback param is a hack to allow testing networked contexts on the same
+  # thread. Not meant to be used in non-test code
   var address = address
   var port = 9632
 
@@ -290,7 +318,8 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
     self.reactor = new_reactor()
   self.subscribing = true
   let parts = address.split(":")
-  assert parts.len in [1, 2], "subscription address must be in the format " &
+  assert parts.len in [1, 2],
+    "subscription address must be in the format " &
       "`hostname` or `hostname:port`"
 
   if parts.len == 2:
@@ -298,8 +327,10 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
     port = parts[1].parse_int
 
   let connection = self.reactor.connect(address, port)
-  self.send(Subscription(kind: Remote, ctx_id: "temp",
-      connection: connection), Message(kind: Subscribe))
+  self.send(
+    Subscription(kind: Remote, ctx_id: "temp", connection: connection),
+    Message(kind: Subscribe),
+  )
 
   var ctx_id = ""
   var received_objects: HashSet[string]
@@ -317,7 +348,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
         if bidirectional:
           let pieces = msg.data.split(":")
           ctx_id = pieces[1]
-          for id in pieces[2..^1]:
+          for id in pieces[2 ..^ 1]:
             remote_objects.incl id
 
         finished = true
@@ -331,8 +362,7 @@ proc subscribe*(self: ZenContext, address: string, bidirectional = true,
   self.process_value_initializers
 
   if bidirectional:
-    let sub = Subscription(kind: Remote, connection: connection,
-        ctx_id: ctx_id)
+    let sub = Subscription(kind: Remote, connection: connection, ctx_id: ctx_id)
 
     self.add_subscriber(sub, push_all = false, remote_objects)
 
@@ -356,32 +386,43 @@ proc process_message(self: ZenContext, msg: Message) =
   if msg.kind == Packed:
     let ops = msg.obj.from_flatty(seq[PackedMessageOperation])
     for op in ops:
-      var new_msg = Message(kind: op.kind, object_id: msg.object_id,
-          type_id: msg.type_id, ref_id: op.ref_id, change_object_id:
-          op.change_object_id, obj: op.obj, flags: msg.flags, source:
-          msg.source)
+      var new_msg = Message(
+        kind: op.kind,
+        object_id: msg.object_id,
+        type_id: msg.type_id,
+        ref_id: op.ref_id,
+        change_object_id: op.change_object_id,
+        obj: op.obj,
+        flags: msg.flags,
+        source: msg.source,
+      )
 
       self.process_message(new_msg)
-
   elif msg.kind == Create:
     {.gcsafe.}:
       if msg.type_id notin type_initializers:
         print msg
         fail \"No type initializer for type {msg.type_id}"
 
-    {.gcsafe.}: # :(
+    {.gcsafe.}:
       let fn = type_initializers[msg.type_id]
-      fn(msg.obj, self, msg.object_id, msg.flags,
-          OperationContext.init(source = msg, ctx = self))
-
+      fn(
+        msg.obj,
+        self,
+        msg.object_id,
+        msg.flags,
+        OperationContext.init(source = msg, ctx = self),
+      )
+      # :(
   elif msg.kind != Blank:
     if msg.object_id notin self:
       # :( this should throw an error
       debug "missing object", object_id = msg.object_id
       return
     let obj = self.objects[msg.object_id]
-    obj.change_receiver(obj, msg, op_ctx = OperationContext.init(source = msg, ctx = self))
-
+    obj.change_receiver(
+      obj, msg, op_ctx = OperationContext.init(source = msg, ctx = self)
+    )
   else:
     fail "Can't recv a blank message"
 
@@ -401,9 +442,9 @@ proc untrack*[T, O](self: Zen[T, O], zid: ZID) =
   else:
     error "no change callback for zid", zid = zid
 
-proc track*[T, O](self: Zen[T, O],
-    callback: proc(changes: seq[Change[O]]) {.gcsafe.}): ZID {.discardable.} =
-
+proc track*[T, O](
+    self: Zen[T, O], callback: proc(changes: seq[Change[O]]) {.gcsafe.}
+): ZID {.discardable.} =
   privileged
   log_defaults
 
@@ -416,10 +457,10 @@ proc track*[T, O](self: Zen[T, O],
     self.untrack(zid)
   result = zid
 
-proc track*[T, O](self: Zen[T, O],
-    callback: proc(changes: seq[Change[O]], zid: ZID) {.gcsafe.}):
-    ZID {.discardable.} =
-
+proc track*[T, O](
+    self: Zen[T, O],
+    callback: proc(changes: seq[Change[O]], zid: ZID) {.gcsafe.},
+): ZID {.discardable.} =
   assert self.valid
   var zid: ZID
   zid = self.track proc(changes: seq[Change[O]]) {.gcsafe.} =
@@ -430,39 +471,50 @@ proc track*[T, O](self: Zen[T, O],
 proc untrack_on_destroy*(self: ref ZenBase, zid: ZID) =
   self.bound_zids.add(zid)
 
-proc boop*(self: ZenContext,
-  messages = int.high, max_duration = self.max_recv_duration, min_duration =
-  self.min_recv_duration, blocking = self.blocking_recv,
-  poll = true) {.gcsafe.} =
-
+proc boop*(
+    self: ZenContext,
+    messages = int.high,
+    max_duration = self.max_recv_duration,
+    min_duration = self.min_recv_duration,
+    blocking = self.blocking_recv,
+    poll = true,
+) {.gcsafe.} =
   boops_counter.inc(label_values = [self.metrics_label])
 
   pressure_gauge.set(self.pressure, label_values = [self.metrics_label])
-  object_pool_gauge.set(float self.objects.len, 
-    label_values = [self.metrics_label])
+  object_pool_gauge.set(
+    float self.objects.len, label_values = [self.metrics_label]
+  )
 
-  ref_pool_gauge.set(float self.ref_pool.len, label_values = 
-    [self.metrics_label])
+  ref_pool_gauge.set(
+    float self.ref_pool.len, label_values = [self.metrics_label]
+  )
 
-  buffer_gauge.set(float self.subscribers.map_it(
-    if it.kind == Local: it.chan_buffer.len else: 0).sum, 
-    label_values = [self.metrics_label])
+  buffer_gauge.set(
+    float self.subscribers.map_it(
+      if it.kind == Local: it.chan_buffer.len else: 0
+    ).sum,
+    label_values = [self.metrics_label],
+  )
 
-  chan_remaining_gauge.set(float self.chan.remaining, 
-    label_values = [self.metrics_label])
+  chan_remaining_gauge.set(
+    float self.chan.remaining, label_values = [self.metrics_label]
+  )
 
   var msg: Message
   self.unsubscribed = @[]
   var count = 0
   self.free_refs
-  let timeout = if not ?max_duration:
-    MonoTime.high
-  else:
-    get_mono_time() + max_duration
-  let recv_until = if not ?min_duration:
-    MonoTime.low
-  else:
-    get_mono_time() + min_duration
+  let timeout =
+    if not ?max_duration:
+      MonoTime.high
+    else:
+      get_mono_time() + max_duration
+  let recv_until =
+    if not ?min_duration:
+      MonoTime.low
+    else:
+      get_mono_time() + min_duration
 
   self.flush_buffers
   while true:
@@ -490,9 +542,13 @@ proc boop*(self: ZenContext,
         let msg = raw_msg.data.uncompress.from_flatty(Message, self)
         if msg.kind == Subscribe:
           var remote: HashSet[string]
-          self.add_subscriber(Subscription(kind: Remote,
-              connection: raw_msg.conn, ctx_id: msg.source),
-              push_all = true, remote)
+          self.add_subscriber(
+            Subscription(
+              kind: Remote, connection: raw_msg.conn, ctx_id: msg.source
+            ),
+            push_all = true,
+            remote,
+          )
 
           self.pack_objects
           var objects = self.objects.keys.to_seq.join(":")
@@ -502,11 +558,11 @@ proc boop*(self: ZenContext,
           self.reactor.tick
           self.dead_connections &= self.reactor.dead_connections
           self.remote_messages &= self.reactor.messages
-
         else:
           self.process_message(msg)
 
-    if poll == false or ((count > 0 or not blocking) and get_mono_time() > recv_until):
+    if poll == false or
+        ((count > 0 or not blocking) and get_mono_time() > recv_until):
       break
 
 template changes*[T, O](self: Zen[T, O], pause_me, body) =
@@ -515,15 +571,32 @@ template changes*[T, O](self: Zen[T, O], pause_me, body) =
     let pause_zid = if pause_me: zid else: 0
     zen.pause(pause_zid):
       for change {.inject.} in changes:
-        template added: bool = Added in change.changes
-        template added(obj: O): bool = change.item == obj and added()
-        template removed: bool = Removed in change.changes
-        template removed(obj: O): bool = change.item == obj and removed()
-        template modified: bool = Modified in change.changes
-        template modified(obj: O): bool = change.item == obj and modified()
-        template touched: bool = Touched in change.changes
-        template touched(obj: O): bool = change.item == obj and touched()
-        template closed: bool = Closed in change.changes
+        template added(): bool =
+          Added in change.changes
+
+        template added(obj: O): bool =
+          change.item == obj and added()
+
+        template removed(): bool =
+          Removed in change.changes
+
+        template removed(obj: O): bool =
+          change.item == obj and removed()
+
+        template modified(): bool =
+          Modified in change.changes
+
+        template modified(obj: O): bool =
+          change.item == obj and modified()
+
+        template touched(): bool =
+          Touched in change.changes
+
+        template touched(obj: O): bool =
+          change.item == obj and touched()
+
+        template closed(): bool =
+          Closed in change.changes
 
         body
 

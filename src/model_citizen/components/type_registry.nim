@@ -1,11 +1,14 @@
-import std / [locks, intsets, macros, typetraits, strutils]
-import std / macrocache except value
-import model_citizen / core
-import model_citizen / [types {.all.}, zens / contexts, zens / private]
-import ./ private / global_state
+import std/[locks, intsets, macros, typetraits, strutils]
+import std/macrocache except value
+import model_citizen/core
+import model_citizen/[types {.all.}, zens/contexts, zens/private]
+import ./private/global_state
 
-template deref*(o: ref): untyped = o[]
-template deref*(o: not ref): untyped = o
+template deref*(o: ref): untyped =
+  o[]
+
+template deref*(o: not ref): untyped =
+  o
 
 const created_procs = CacheSeq"created_procs"
 
@@ -38,38 +41,40 @@ proc register_type(typ: type) =
   with_lock:
     assert key notin global_type_registry[], "Type already registered"
 
-  let stringify = func(self: ref RootObj): string =
-    let self = typ(self)
-    var clone = new typ
-    clone[] = self[]
-    for src, dest in fields(self[], clone[]):
-      when src is Zen:
-        if ?src:
-          var field = type(src)()
-          field.id = src.id
-          dest = field
-      elif src is ref:
-        dest = nil
-      elif (src is proc):
-        dest = nil
-      elif src.has_custom_pragma(zen_ignore):
-        dest = dest.type.default
-    {.no_side_effect.}:
-      result = flatty.to_flatty(clone[])
+  let stringify =
+    func (self: ref RootObj): string =
+      let self = typ(self)
+      var clone = new typ
+      clone[] = self[]
+      for src, dest in fields(self[], clone[]):
+        when src is Zen:
+          if ?src:
+            var field = type(src)()
+            field.id = src.id
+            dest = field
+        elif src is ref:
+          dest = nil
+        elif (src is proc):
+          dest = nil
+        elif src.has_custom_pragma(zen_ignore):
+          dest = dest.type.default
+      {.no_side_effect.}:
+        result = flatty.to_flatty(clone[])
 
-  let parse = func(ctx: ZenContext, clone_from: string): ref RootObj =
-    var self = typ()
-    {.no_side_effect.}:
-      self[] = from_flatty(clone_from, self[].type, ctx)
-    for field in self[].fields:
-      when field is Zen:
-        if ?field and field.id in ctx:
-          field = type(field)(ctx[field.id])
-    result = self
+  let parse =
+    func (ctx: ZenContext, clone_from: string): ref RootObj =
+      var self = typ()
+      {.no_side_effect.}:
+        self[] = from_flatty(clone_from, self[].type, ctx)
+      for field in self[].fields:
+        when field is Zen:
+          if ?field and field.id in ctx:
+            field = type(field)(ctx[field.id])
+      result = self
 
   with_lock:
-    global_type_registry[][key] = RegisteredType(stringify: stringify,
-        parse: parse, tid: key)
+    global_type_registry[][key] =
+      RegisteredType(stringify: stringify, parse: parse, tid: key)
 
 proc is_zen(node: NimNode): bool =
   if node.kind == nnk_sym and node.str_val == "ZenBase":
@@ -93,13 +98,12 @@ proc get_value_type(self: NimNode): NimNode =
     if def.len >= 3 and def[2].kind == nnk_bracket_expr:
       if def[2][0].kind == nnk_sym and def[2][0].str_val == "ZenValue":
         return def[2][1]
-
   elif self.kind == nnk_bracket_expr:
     if self[0].str_val.starts_with("Zen"):
       return self[1]
 
-  error "get_value_type doesn't know how to handle type:\n\n" &
-      self.tree_repr & "\n\nThis is probably a model_citizen bug.", self
+  error "get_value_type doesn't know how to handle type:\n\n" & self.tree_repr &
+    "\n\nThis is probably a model_citizen bug.", self
 
 macro build_accessors(T: type, public: bool): untyped =
   result = new_stmt_list()
@@ -109,7 +113,6 @@ macro build_accessors(T: type, public: bool): untyped =
 
   while type_sym.kind != nnk_empty and type_sym != bind_sym("RootObj") and
       type_sym != bind_sym("RootRef"):
-
     base_type = type_sym
     let type_impl = type_sym.get_impl
 
@@ -119,7 +122,7 @@ macro build_accessors(T: type, public: bool): untyped =
       var def_count = def.len - 1
       if def[^1].kind == nnk_empty:
         dec def_count
-      var field_defs = def[0..<def_count]
+      var field_defs = def[0 ..< def_count]
       var type_def = def[def_count]
 
       for ident in field_defs:
@@ -132,10 +135,11 @@ macro build_accessors(T: type, public: bool): untyped =
 
         let name = ident.str_val
         if name.to_lower.ends_with("value") and is_zen(type_def):
-          let getter_name = if name.ends_with("_value"):
-            name[0..^7]
-          else:
-            name[0..^6]
+          let getter_name =
+            if name.ends_with("_value"):
+              name[0 ..^ 7]
+            else:
+              name[0 ..^ 6]
           names.add getter_name
 
           let
@@ -155,8 +159,10 @@ macro build_accessors(T: type, public: bool): untyped =
           if create_accessors:
             created_procs.incl(id)
 
-            var accessors = quote do:
-              proc `getter`(self: `type_sym`): `value_type` = value(self.`sym`)
+            var accessors = quote:
+              proc `getter`(self: `type_sym`): `value_type` =
+                value(self.`sym`)
+
               proc `setter`(self: `type_sym`, value: `value_type`) =
                 self.`sym`.value = value
 
@@ -165,14 +171,15 @@ macro build_accessors(T: type, public: bool): untyped =
               accessors[1].export_routine
             result.add accessors
 
-    type_sym = if type_impl[2][0][1].kind == nnk_of_inherit:
-      type_impl[2][0][1][0]
-    else:
-      new_empty_node()
+    type_sym =
+      if type_impl[2][0][1].kind == nnk_of_inherit:
+        type_impl[2][0][1][0]
+      else:
+        new_empty_node()
 
-template build_accessors*(_: type Zen, T: type[ref object],
-    public: bool = true): untyped =
-
+template build_accessors*(
+    _: type Zen, T: type[ref object], public: bool = true
+): untyped =
   build_accessors(T, public)
 
 macro register*(_: type Zen, typ: type, public = true): untyped =
@@ -214,11 +221,11 @@ proc find_ref*[T](self: ZenContext, value: var T): bool =
       result = true
 
 when defined(dump_zen_objects):
-  import std / [os, algorithm]
+  import std/[os, algorithm]
 
-proc can_free*(self: ZenContext, value: ref RootObj, id: string): 
-  tuple[freeable: bool, references: seq[string], missing: bool] =
-
+proc can_free*(
+    self: ZenContext, value: ref RootObj, id: string
+): tuple[freeable: bool, references: seq[string], missing: bool] =
   privileged
 
   result.freeable = true
@@ -231,7 +238,7 @@ proc can_free*(self: ZenContext, value: ref RootObj, id: string):
 
 proc free_impl(self: ZenContext, value: ref RootObj, id: string) =
   privileged
-  
+
   debug "freeing ref", id
   let query = self.can_free(value, id)
   if not query.freeable:
@@ -243,9 +250,8 @@ proc free_impl(self: ZenContext, value: ref RootObj, id: string) =
       return
 
     if not query.missing:
-      fail \"ref `{id}` has {query.references.len} references from " & 
+      fail \"ref `{id}` has {query.references.len} references from " &
         \"{references}. Can't free."
-
     else:
       fail \"unable to find ref_id `{id}` in freeable refs. Double free?"
 
@@ -265,7 +271,7 @@ proc queue_free*[T: ref RootObj](self: ZenContext, value: T) =
     self.free(value)
   elif not query.missing:
     self.free_queue.add(id)
-    
+
 proc free_refs*(self: ZenContext) =
   privileged
 
@@ -298,10 +304,9 @@ proc free_refs*(self: ZenContext) =
     self.freeable_refs.del(id)
 
 when is_main_module:
-  import ./ subscriptions
-  type
-    Unit = ref object of RootObj
-      id*: string
-      name*: string
+  import ./subscriptions
+  type Unit = ref object of RootObj
+    id*: string
+    name*: string
 
   Zen.register(Unit)
