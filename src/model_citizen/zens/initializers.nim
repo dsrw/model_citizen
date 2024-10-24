@@ -163,7 +163,7 @@ proc defaults[T, O](
       let object_id = msg.change_object_id
       assert object_id in self.ctx
       let item = O(self.ctx.objects[object_id])
-    elif O is Pair[any, Zen]:
+    elif O is Pair[auto, Zen]:
       # Workaround for compile issue. This should be `O`, not `O.default.type`.
       type K = generic_params(O.default.type).get(0)
       type V = generic_params(O.default.type).get(1)
@@ -182,7 +182,7 @@ proc defaults[T, O](
       var item: O
       when item is ref RootObj:
         if msg.obj != "":
-          if msg.ref_id > 0:
+          if msg.ref_id != 0:
             var registered_type: RegisteredType
             if lookup_type(msg.ref_id, registered_type):
               item = type(item)(registered_type.parse(self.ctx, msg.obj))
