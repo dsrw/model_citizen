@@ -29,7 +29,9 @@ This library provides "Zen" objects - reactive data containers that can:
 ### Testing Structure
 - All tests are in `tests/` directory
 - Main test runner: `tests/tests.nim`
-- Individual test suites: `basic_tests.nim`, `threading_tests.nim`, `network_tests.nim`, `publish_tests.nim`, `object_tests.nim`
+- Individual test suites: `basic_tests.nim`, `threading_tests.nim`, `network_tests.nim`, `publish_tests.nim`, `object_tests.nim`, `memory_tests.nim`, `network_threading_tests.nim`, `error_handling_tests.nim`, `utils_tests.nim`, `validation_tests.nim`
+- Additional files: `object_tests_types.nim` (type definitions for object tests)
+- Failing tests directory: `failing/` contains tests for edge cases and failure scenarios
 
 ## Development Commands
 
