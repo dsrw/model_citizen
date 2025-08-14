@@ -760,7 +760,7 @@ proc run*() =
       check "world" in src.value
 
   test "hash sets":
-    var s = ZenHashSet[string].init
+    var s = ZenHashSet[string].init(flags = {})
     s += "hello"
     s += "world"
     
@@ -799,8 +799,8 @@ proc run*() =
     s.untrack(zid)
 
   test "hash set operations":
-    var s1 = ZenHashSet[string].init
-    var s2 = ZenHashSet[string].init
+    var s1 = ZenHashSet[string].init(flags = {})
+    var s2 = ZenHashSet[string].init(flags = {})
     
     s1 += "a"
     s1 += "b"
@@ -819,7 +819,7 @@ proc run*() =
       name: string
       age: int
     
-    var s = ZenHashSet[Person].init
+    var s = ZenHashSet[Person].init(flags = {})
     let person1 = Person(name: "Alice", age: 30)
     let person2 = Person(name: "Bob", age: 25)
     

@@ -97,9 +97,9 @@ proc defaults[T, O](
 
       src_ctx.send(sub, msg, op_ctx, flags = self.flags & {SyncAllNoOverwrite})
 
-    if sub.kind != Blank:
+    if sub.kind != Blank and (SyncLocal in flags or SyncRemote in flags):
       ctx.send_msg(sub)
-    if broadcast:
+    if broadcast and (SyncLocal in flags or SyncRemote in flags):
       for sub in ctx.subscribers:
         if sub.ctx_id notin op_ctx.source:
           ctx.send_msg(sub)
