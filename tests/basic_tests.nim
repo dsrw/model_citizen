@@ -759,7 +759,7 @@ proc run*() =
       check "hello" in src.value
       check "world" in src.value
 
-  test "hash sets" when false:
+  test "hash sets":
     var s = ZenHashSet[string].init
     s += "hello"
     s += "world"
