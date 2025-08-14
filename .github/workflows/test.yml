@@ -1,0 +1,27 @@
+name: 🧪 Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Nim 2.2.0
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: '2.2.0'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install dependencies
+        run: nimble install -y --depsOnly
+      
+      - name: Run tests
+        run: nimble test
