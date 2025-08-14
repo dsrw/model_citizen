@@ -115,8 +115,17 @@ ctx2.subscribe(ctx1)
 - Some deprecation warnings exist (e.g., `newIdentNode` usage)
 - Project follows a modular architecture with clear separation of concerns
 
-## Commit Guidelines
+## Git Workflow Guidelines
 
+### Work Tree Management
+- Always stay within the current work tree directory during operations
+- If working in a git work tree, fetch and ensure the current branch is up to date with `origin/main` before starting any task
+- When instructed to "push to main", this means push the current branch to `origin/main` using:
+  ```bash
+  git push origin <current-branch>:main
+  ```
+
+### Commit Guidelines
 - Prefer single-line commit messages when possible
 - Use Co-Authored-By tag for attribution when working with AI assistance:
   ```
