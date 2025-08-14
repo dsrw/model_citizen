@@ -114,3 +114,11 @@ ctx2.subscribe(ctx1)
 - Extensive logging and metrics collection capabilities
 - Some deprecation warnings exist (e.g., `newIdentNode` usage)
 - Project follows a modular architecture with clear separation of concerns
+
+## Commit Guidelines
+
+- Prefer single-line commit messages when possible
+- Use Co-Authored-By tag for attribution when working with AI assistance:
+  ```
+  Co-Authored-By: Claude <noreply@anthropic.com>
+  ```
