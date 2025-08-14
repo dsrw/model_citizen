@@ -1,3 +1,8 @@
+# ignore all files with no extension (unix binaries)
+*
+!/**/
+!*.*
+
 nimcache/
 nimblecache/
 htmldocs/
