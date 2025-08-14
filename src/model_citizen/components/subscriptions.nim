@@ -159,10 +159,14 @@ proc send*(
   elif sub.kind == Remote and SyncRemote in flags:
     if ?self.reactor:
       self.reactor.send(sub.connection, msg.to_flatty.compress)
+    # Note: If no reactor exists, we skip remote sync. This happens when objects
+    # are created with default sync flags but no network context is set up.
   elif sub.kind == Remote and SyncAllNoOverwrite in flags:
     msg.obj = ""
     if ?self.reactor:
       self.reactor.send(sub.connection, msg.to_flatty.compress)
+    # Note: If no reactor exists, we skip remote sync. This happens when objects
+    # are created with default sync flags but no network context is set up.
 
 proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
   privileged
