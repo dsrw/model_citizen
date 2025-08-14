@@ -37,7 +37,7 @@ proc contains*[K, V](self: ZenTable[K, V], key: K): bool =
   assert self.valid
   key in self.tracked
 
-proc contains*[T, O](self: Zen[T, O], children: set[O] | seq[O]): bool =
+proc contains*[T, O](self: Zen[T, O], children: set[O] | seq[O] | HashSet[O]): bool =
   assert self.valid
   result = true
   for child in children:
@@ -173,6 +173,10 @@ proc touch*[T: set, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   assert self.valid
   self.change_and_touch({value}, true, op_ctx = op_ctx)
 
+proc touch*[T: HashSet, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
+  assert self.valid
+  self.change_and_touch([value].to_hash_set, true, op_ctx = op_ctx)
+
 proc touch*[T: seq, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   assert self.valid
   self.change_and_touch(@[value], true, op_ctx = op_ctx)
@@ -191,7 +195,11 @@ proc len*(self: Zen): int =
   assert self.valid
   self.tracked.len
 
-proc `+`*[O](self, other: ZenSet[O]): set[O] =
+proc `+`*[O](self, other: ZenOrdinalSet[O]): set[O] =
+  privileged
+  self.tracked + other.tracked
+
+proc `+`*[O](self, other: ZenHashSet[O]): HashSet[O] =
   privileged
   self.tracked + other.tracked
 
@@ -199,9 +207,13 @@ proc `+=`*[T, O](self: Zen[T, O], value: T) =
   assert self.valid
   self.change(value, true, op_ctx = OperationContext())
 
-proc `+=`*[O](self: ZenSet[O], value: O) =
+proc `+=`*[O](self: ZenOrdinalSet[O], value: O) =
   assert self.valid
   self.change({value}, true, op_ctx = OperationContext())
+
+proc `+=`*[O](self: ZenHashSet[O], value: O) =
+  assert self.valid
+  self.change([value].to_hash_set, true, op_ctx = OperationContext())
 
 proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
   assert self.valid
@@ -218,6 +230,10 @@ proc `-=`*[T, O](self: Zen[T, O], value: T) =
 proc `-=`*[T: set, O](self: Zen[T, O], value: O) =
   assert self.valid
   self.change({value}, false, op_ctx = OperationContext())
+
+proc `-=`*[T: HashSet, O](self: Zen[T, O], value: O) =
+  assert self.valid
+  self.change([value].to_hash_set, false, op_ctx = OperationContext())
 
 proc `-=`*[T: seq, O](self: Zen[T, O], value: O) =
   assert self.valid
@@ -295,7 +311,7 @@ proc `~==~`*[T, O](a: Zen[T, O], b: Zen[T, O]): bool =
 proc `?~`*[T](self: ZenValue[T]): bool =
   ? ~self
 
-iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
+iterator items*[T](self: ZenOrdinalSet[T] | ZenHashSet[T] | ZenSeq[T]): T =
   privileged
   assert self.valid
   for item in self.tracked.items:

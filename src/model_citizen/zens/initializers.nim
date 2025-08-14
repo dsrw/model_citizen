@@ -278,6 +278,21 @@ proc init*[O](
     self.tracked = tracked
   result = self
 
+proc init*[O](
+    _: type Zen,
+    tracked: HashSet[O],
+    flags = default_flags,
+    ctx = ctx(),
+    id = "",
+    op_ctx = OperationContext(),
+): Zen[HashSet[O], O] =
+  ctx.setup_op_ctx
+  var self = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
+
+  mutate(op_ctx):
+    self.tracked = tracked
+  result = self
+
 proc init*[K, V](
     _: type Zen,
     tracked: Table[K, V],
@@ -329,6 +344,17 @@ proc init*[O](
 ): Zen[set[O], O] =
   ctx.setup_op_ctx
   result = Zen[set[O], O](flags: flags).defaults(ctx, id, op_ctx)
+
+proc init*[O](
+    _: type Zen,
+    T: type HashSet[O],
+    flags = default_flags,
+    ctx = ctx(),
+    id = "",
+    op_ctx = OperationContext(),
+): Zen[HashSet[O], O] =
+  ctx.setup_op_ctx
+  result = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
 
 proc init*[K, V](
     _: type Zen,

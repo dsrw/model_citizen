@@ -157,10 +157,12 @@ proc send*(
     msg.obj = ""
     sub.send_or_buffer(msg, self.buffer)
   elif sub.kind == Remote and SyncRemote in flags:
-    self.reactor.send(sub.connection, msg.to_flatty.compress)
+    if ?self.reactor:
+      self.reactor.send(sub.connection, msg.to_flatty.compress)
   elif sub.kind == Remote and SyncAllNoOverwrite in flags:
     msg.obj = ""
-    self.reactor.send(sub.connection, msg.to_flatty.compress)
+    if ?self.reactor:
+      self.reactor.send(sub.connection, msg.to_flatty.compress)
 
 proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
   privileged
