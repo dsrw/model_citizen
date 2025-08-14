@@ -13,6 +13,9 @@ proc `-`*[T](a, b: seq[T]): seq[T] =
 template `&`*[T](a, b: set[T]): set[T] =
   a + b
 
+template `&`*[T](a, b: HashSet[T]): HashSet[T] =
+  a + b
+
 proc trigger_callbacks*[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
   private_access ZenObject[T, O]
   private_access ZenBase
@@ -142,7 +145,7 @@ proc process_changes*[T](
     self.publish_changes(changes, op_ctx)
     self.trigger_callbacks(changes)
 
-proc process_changes*[T: seq | set, O](
+proc process_changes*[T: seq | set | HashSet, O](
     self: Zen[T, O],
     initial: sink T,
     op_ctx: OperationContext,
@@ -260,8 +263,11 @@ proc assign*[O](self: ZenSeq[O], values: seq[O], op_ctx: OperationContext) =
   for value in values:
     self.add(value, op_ctx = op_ctx)
 
-proc assign*[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
+proc assign*[O](self: ZenOrdinalSet[O], value: O, op_ctx: OperationContext) =
   self.change({value}, add = true, op_ctx = op_ctx)
+
+proc assign*[O](self: ZenHashSet[O], value: O, op_ctx: OperationContext) =
+  self.change([value].to_hash_set, add = true, op_ctx = op_ctx)
 
 proc assign*[K, V](
     self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext
@@ -274,8 +280,11 @@ proc assign*[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
 proc unassign*[O](self: ZenSeq[O], value: O, op_ctx: OperationContext) =
   self.change(@[value], false, op_ctx = op_ctx)
 
-proc unassign*[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
+proc unassign*[O](self: ZenOrdinalSet[O], value: O, op_ctx: OperationContext) =
   self.change({value}, false, op_ctx = op_ctx)
+
+proc unassign*[O](self: ZenHashSet[O], value: O, op_ctx: OperationContext) =
+  self.change([value].to_hash_set, false, op_ctx = op_ctx)
 
 proc unassign*[K, V](
     self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext

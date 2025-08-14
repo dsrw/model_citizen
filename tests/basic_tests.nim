@@ -1,7 +1,7 @@
 import
   std/[
     tables, sequtils, sugar, macros, typetraits, sets, isolation, unittest,
-    deques, importutils, monotimes, os
+    deques, importutils, monotimes, os, algorithm
   ]
 import pkg/[pretty, chronicles, netty]
 import model_citizen
@@ -335,7 +335,7 @@ proc run*() =
         id: int
         parent: Unit
         units: Zen[seq[Unit], Unit]
-        flags: ZenSet[UnitFlags]
+        flags: ZenOrdinalSet[UnitFlags]
 
     proc init(
         _: type Unit, id = 0, flags = {TrackChildren, SyncLocal, SyncRemote}
@@ -734,15 +734,110 @@ proc run*() =
 
     local_and_remote:
       let msg = "hello world"
-      var src = ZenSet[Flags].init
+      var src = ZenOrdinalSet[Flags].init
       ctx2.boop
-      var dest = ZenSet[Flags](ctx2[src])
+      var dest = ZenOrdinalSet[Flags](ctx2[src])
       src += One
       ctx2.boop
       check dest.value == {One}
       dest += Two
       ctx1.boop
       check src.value == {One, Two}
+
+  test "sync hash set":
+    local_and_remote:
+      let msg = "hello world"
+      var src = ZenHashSet[string].init
+      ctx2.boop
+      var dest = ZenHashSet[string](ctx2[src])
+      src += "hello"
+      ctx2.boop
+      check "hello" in dest.value
+      dest += "world"
+      ctx1.boop
+      check src.value.len == 2
+      check "hello" in src.value
+      check "world" in src.value
+
+  test "hash sets" when false:
+    var s = ZenHashSet[string].init
+    s += "hello"
+    s += "world"
+    
+    check:
+      "hello" in s
+      "world" in s
+      "missing" notin s
+
+    var added_items {.threadvar.}: seq[string]
+    var removed_items {.threadvar.}: seq[string]
+
+    let zid = s.track proc(changes: auto) {.gcsafe.} =
+      added_items.add changes.filter_it(Added in it.changes).map_it it.item
+      removed_items.add changes.filter_it(Removed in it.changes).map_it it.item
+
+    s += "nim"
+    check:
+      added_items == @["nim"]
+      s.len == 3
+
+    s -= "world"
+    check:
+      removed_items == @["world"]
+      s.len == 2
+      "world" notin s
+      "hello" in s
+
+    # Test clear
+    removed_items = @[]
+    s.clear()
+    removed_items.sort
+    check:
+      removed_items == @["hello", "nim"]
+      s.len == 0
+    
+    s.untrack(zid)
+
+  test "hash set operations":
+    var s1 = ZenHashSet[string].init
+    var s2 = ZenHashSet[string].init
+    
+    s1 += "a"
+    s1 += "b"
+    s2 += "b"  
+    s2 += "c"
+    
+    let combined = s1 + s2
+    check:
+      combined.len == 3
+      "a" in combined
+      "b" in combined 
+      "c" in combined
+
+  test "hash set with complex types":
+    type Person = object
+      name: string
+      age: int
+    
+    var s = ZenHashSet[Person].init
+    let person1 = Person(name: "Alice", age: 30)
+    let person2 = Person(name: "Bob", age: 25)
+    
+    s += person1
+    s += person2
+    
+    check:
+      person1 in s
+      person2 in s
+      s.len == 2
+    
+    # Test iteration
+    var found_names: seq[string]
+    for person in s:
+      found_names.add person.name
+    
+    found_names.sort
+    check found_names == @["Alice", "Bob"]
 
   test "seq of tuples":
     local_and_remote:

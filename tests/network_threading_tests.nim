@@ -14,7 +14,7 @@ type
     End
 
   Unit = ref object of RootObj
-    flags: ZenSet[UnitFlags]
+    flags: ZenOrdinalSet[UnitFlags]
     units: ZenSeq[Unit]
 
 proc start_worker(ctx: ZenContext) {.thread.} =
