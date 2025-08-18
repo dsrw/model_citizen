@@ -3,6 +3,8 @@
 !/**/
 !*.*
 
+.claude/settings.local.json
+omnara*/
 nimcache/
 nimblecache/
 htmldocs/
