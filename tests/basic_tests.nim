@@ -763,7 +763,7 @@ proc run*() =
     var s = ZenHashSet[string].init
     s += "hello"
     s += "world"
-    
+
     check:
       "hello" in s
       "world" in s
@@ -795,47 +795,47 @@ proc run*() =
     check:
       removed_items == @["hello", "nim"]
       s.len == 0
-    
+
     s.untrack(zid)
 
   test "hash set operations":
     var s1 = ZenHashSet[string].init
     var s2 = ZenHashSet[string].init
-    
+
     s1 += "a"
     s1 += "b"
-    s2 += "b"  
+    s2 += "b"
     s2 += "c"
-    
+
     let combined = s1 + s2
     check:
       combined.len == 3
       "a" in combined
-      "b" in combined 
+      "b" in combined
       "c" in combined
 
   test "hash set with complex types":
     type Person = object
       name: string
       age: int
-    
+
     var s = ZenHashSet[Person].init
     let person1 = Person(name: "Alice", age: 30)
     let person2 = Person(name: "Bob", age: 25)
-    
+
     s += person1
     s += person2
-    
+
     check:
       person1 in s
       person2 in s
       s.len == 2
-    
+
     # Test iteration
     var found_names: seq[string]
     for person in s:
       found_names.add person.name
-    
+
     found_names.sort
     check found_names == @["Alice", "Bob"]
 
