@@ -1,5 +1,4 @@
-import
-  std/[importutils, tables, sets, sequtils, algorithm, intsets, locks, math]
+import std/[net, importutils, tables, sets, sequtils, algorithm, intsets, math]
 
 import pkg/threading/channels {.all.}
 import pkg/[flatty, supersnappy]
@@ -157,16 +156,10 @@ proc send*(
     msg.obj = ""
     sub.send_or_buffer(msg, self.buffer)
   elif sub.kind == Remote and SyncRemote in flags:
-    if ?self.reactor:
-      self.reactor.send(sub.connection, msg.to_flatty.compress)
-    # Note: If no reactor exists, we skip remote sync. This happens when objects
-    # are created with default sync flags but no network context is set up.
+    self.reactor.send(sub.connection, msg.to_flatty.compress)
   elif sub.kind == Remote and SyncAllNoOverwrite in flags:
     msg.obj = ""
-    if ?self.reactor:
-      self.reactor.send(sub.connection, msg.to_flatty.compress)
-    # Note: If no reactor exists, we skip remote sync. This happens when objects
-    # are created with default sync flags but no network context is set up.
+    self.reactor.send(sub.connection, msg.to_flatty.compress)
 
 proc publish_destroy*[T, O](self: Zen[T, O], op_ctx: OperationContext) =
   privileged
@@ -608,3 +601,11 @@ template changes*[T, O](self: Zen[T, O], pause_me, body) =
 
 template changes*[T, O](self: Zen[T, O], body) =
   changes(self, true, body)
+
+proc close*(self: ZenContext) =
+  for sub in self.subscribers.filter_it(it.kind == Remote):
+    self.unsubscribe(sub)
+  if ?self.reactor:
+    private_access Reactor
+    self.reactor.socket.close()
+  self.reactor = nil

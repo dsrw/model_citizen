@@ -141,9 +141,3 @@ proc clear*(self: ZenContext) =
   debug "Clearing ZenContext"
   self.objects.clear
   self.objects_need_packing = false
-
-proc close*(self: ZenContext) =
-  if ?self.reactor:
-    private_access Reactor
-    self.reactor.socket.close()
-  self.reactor = nil
