@@ -1,12 +1,14 @@
 import
   std/[
-    tables, sequtils, sugar, macros, typetraits, sets, isolation, unittest,
-    deques, importutils, monotimes, os, algorithm
+    tables, sequtils, sugar, macros, typetraits, sets, deques, importutils,
+    monotimes, os, algorithm,
   ]
-import pkg/[pretty, chronicles, netty]
+import pkg/unittest2
+
 import model_citizen
 from std/times import init_duration
 import model_citizen/[types {.all.}, zens {.all.}, zens/contexts {.all.}]
+import model_citizen/utils/logging
 
 import model_citizen/components/type_registry
 
@@ -22,6 +24,7 @@ proc run*() =
     if change_count != expected_count:
       echo ast_to_str(body)
       echo "Expected ", expected_count, " changes. Got ", change_count
+      check false
 
   template assert_changes[T, O](self: Zen[T, O], expect, body: untyped) =
     var expectations = expect.to_deque
@@ -31,7 +34,10 @@ proc run*() =
         if not (
           expectation[0] in change.changes and expectation[1] == change.item
         ):
-          error "unsatisfied expectation", expectation
+          error "unsatisfied expectation",
+            kind = expectation[0],
+            expected = expectation[1],
+            value = change.item
     body
     if expectations.len > 0:
       echo "unsatisfied expectations: ", expectations
@@ -185,7 +191,7 @@ proc run*() =
       Flag2
       Flag3
 
-    var a = ~{Flag1, Flag3}
+    var a {.used.} = ~{Flag1, Flag3}
 
   test "table literals":
     var a = ~Table[int, ZenSeq[string]]
@@ -197,7 +203,7 @@ proc run*() =
 
   test "touch table":
     var a = ZenTable[string, string].init
-    let zid = a.count_changes
+    let zid {.used.} = a.count_changes
 
     1.changes:
       a["hello"] = "world"
@@ -395,7 +401,7 @@ proc run*() =
       Removed: 10,
       Touched: 11,
       Removed: 11,
-      Added: 12
+      Added: 12,
     }:
       a ~= 5
       a ~= 10
@@ -507,7 +513,7 @@ proc run*() =
     local_and_remote:
       var s1 = ZenValue[string].init(ctx = ctx1)
       ctx2.boop
-      var s2 = ZenValue[string](ctx2[s1])
+      var s2 = ctx2[s1]
       check s2.ctx != nil
 
       s1 ~= "sync me"
@@ -520,8 +526,6 @@ proc run*() =
 
       check ~s2 == ~s1 and ~s2 == "sync me and me"
 
-      var msg = "hello world"
-      var another_msg = "another"
       var src = Tree().init_zen_fields(ctx = ctx1)
       ctx2.boop
       var dest = Tree.init_from(src, ctx = ctx2)
@@ -632,7 +636,7 @@ proc run*() =
       container.value.edits[1] = {"1": "one", "2": "two"}.to_table
       ctx2.boop
 
-      var dest = type(container)(ctx2[container])
+      var dest = ctx2[container]
       check 1 in dest.value.edits
       check dest.value.edits[1].len == 2
       check dest.value.edits[1]["2"] == "two"
@@ -687,7 +691,7 @@ proc run*() =
       src += obj
 
       ctx2.boop
-      var dest = ZenSeq[RefType](ctx2[src])
+      var dest = ctx2[src]
 
       private_access ZenContext
       private_access CountedRef
@@ -733,10 +737,9 @@ proc run*() =
       Three
 
     local_and_remote:
-      let msg = "hello world"
       var src = ZenOrdinalSet[Flags].init
       ctx2.boop
-      var dest = ZenOrdinalSet[Flags](ctx2[src])
+      var dest = ctx2[src]
       src += One
       ctx2.boop
       check dest.value == {One}
@@ -746,10 +749,9 @@ proc run*() =
 
   test "sync hash set":
     local_and_remote:
-      let msg = "hello world"
       var src = ZenHashSet[string].init
       ctx2.boop
-      var dest = ZenHashSet[string](ctx2[src])
+      var dest = ctx2[src]
       src += "hello"
       ctx2.boop
       check "hello" in dest.value
@@ -860,7 +862,7 @@ proc run*() =
       var src = ZenValue[ptr RefType].init
 
       ctx2.boop
-      var dest = ZenValue[ptr RefType](ctx2[src])
+      var dest = ctx2[src]
 
       src.value = unsafe_addr(a)
       ctx2.boop
@@ -885,7 +887,7 @@ proc run*() =
       var src = ZenValue[Query].init
 
       ctx2.boop
-      var dest = ZenValue[Query](ctx2[src])
+      var dest = ctx2[src]
 
       src.value = a
       ctx2.boop
@@ -897,10 +899,6 @@ proc run*() =
 
   test "triggered by sync":
     type
-      UnitFlags = enum
-        Targeted
-        Highlighted
-
       SyncUnit = ref object of RootRef
         id: int
         parent: SyncUnit

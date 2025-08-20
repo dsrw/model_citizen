@@ -1,5 +1,4 @@
-import std/[tables, sugar, unittest]
-import pkg/[flatty, chronicles, pretty]
+import pkg/unittest2
 import model_citizen
 from std/times import init_duration
 
@@ -28,8 +27,8 @@ proc run*() =
 
     var
       a = ZenValue[string].init(id = "test1", ctx = ctx1)
-      b = ZenValue[string].init(id = "test1", ctx = ctx2)
-      c = ZenValue[string].init(id = "test1", ctx = ctx3)
+      b {.used.} = ZenValue[string].init(id = "test1", ctx = ctx2)
+      c {.used.} = ZenValue[string].init(id = "test1", ctx = ctx3)
       d = ZenValue[string].init(id = "test1", ctx = ctx4)
 
     ctx1.boop
@@ -95,9 +94,6 @@ proc run*() =
     ctx2.close
 
   test "nested collection":
-    type Unit = object
-      code: ZenValue[string]
-
     var
       count = 0
       ctx1 = ZenContext.init(id = "ctx1")

@@ -14,7 +14,7 @@ proc seconds*(s: float | int): Duration {.inline.} =
 proc maybe_dump_stats*() =
   if now() > next_dump:
     for proc_name, r in saved_stats:
-      info "STATS", proc_name, calls = r[0], time = r[1]
+      debug "STATS", proc_name, calls = r[0], time = r[1]
     next_dump = now() + 5.seconds
 
 proc stats_impl(enabled: bool, proc_def: NimNode): NimNode =

@@ -1,18 +1,17 @@
-import std/[unittest]
-import pkg/[pretty, chronicles]
+import pkg/[pretty, unittest2]
 import model_citizen
 
 proc run*() =
   test "network connection timeout":
     var ctx = ZenContext.init(id = "test_ctx")
-    
+
     # This should fail with ConnectionError for nonexistent host
     expect(ConnectionError):
       ctx.subscribe("nonexistent.host.invalid:9999")
 
   test "network connection refused":
     var ctx = ZenContext.init(id = "test_ctx")
-    
+
     # This should fail when connecting to a closed port
     expect(ConnectionError):
       ctx.subscribe("127.0.0.1:9999")
@@ -20,14 +19,14 @@ proc run*() =
   test "network connection timeout during subscription":
     var ctx1 = ZenContext.init(id = "ctx1", listen_address = "127.0.0.1")
     var ctx2 = ZenContext.init(id = "ctx2")
-    
+
     # Create object before subscription
     var obj = ZenValue[string].init(ctx = ctx1, id = "test_obj")
     obj.value = "test_data"
-    
+
     # Forcibly close the listening context
     ctx1.close()
-    
+
     # This should handle the connection failure gracefully
     # But currently might not
     expect(ConnectionError):
@@ -38,12 +37,12 @@ proc run*() =
     # Currently the library might not handle this gracefully
     var ctx1 = ZenContext.init(id = "ctx1", listen_address = "127.0.0.1")
     var ctx2 = ZenContext.init(id = "ctx2")
-    
+
     ctx2.subscribe("127.0.0.1")
-    
+
     # The library should handle network corruption, but might not
     # This is hard to test directly without lower-level network manipulation
-    
+
     ctx1.close()
 
 when is_main_module:

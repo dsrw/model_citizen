@@ -2,13 +2,13 @@ import std/[typetraits, macros, macrocache]
 import model_citizen/[core, components/private/tracking]
 import
   model_citizen/types {.all.},
-  model_citizen/zens/[validations, operations, contexts, private]
+  model_citizen/zens/[operations, contexts, private]
 
-export new_ident_node
+{.warning[Deprecated]: off.}:
+  export new_ident_node
 
 const initializers = CacheSeq"initializers"
 var type_initializers: Table[int, CreateInitializer]
-var initialized = false
 
 proc ctx(): ZenContext =
   Zen.thread_ctx

@@ -1,7 +1,5 @@
-import
-  std/[importutils, tables, sets, sequtils, algorithm, intsets, locks, sugar]
+import std/[importutils, tables, sets, sequtils, intsets, locks, sugar]
 
-import pkg/[flatty, supersnappy, threading/channels {.all.}]
 import
   model_citizen/
     [core, components/type_registry, zens/contexts, zens/private, types {.all.}]
@@ -87,10 +85,10 @@ proc unlink*[T: Pair](pair: T) =
 
 proc link_or_unlink*[T, O](self: Zen[T, O], change: Change[O], link: bool) =
   log_defaults
-  template value(change: Change[Pair]): untyped =
+  template value(change: Change[Pair]): untyped {.used.} =
     change.item.value
 
-  template value(change: not Change[Pair]): untyped =
+  template value(change: not Change[Pair]): untyped {.used.} =
     change.item
 
   if TrackChildren in self.flags:

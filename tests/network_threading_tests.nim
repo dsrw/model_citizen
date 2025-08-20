@@ -1,5 +1,5 @@
-import std/[locks, os, unittest, tables]
-import pkg/[pretty, chronicles]
+import std/[locks, os, tables]
+import pkg/[pretty, unittest2]
 import model_citizen
 
 var global_lock: Lock
