@@ -1,7 +1,7 @@
 import std/[times, json, tables]
 import model_citizen/[core, types {.all.}, utils]
 import model_citizen/zens/[contexts, validations, private, initializers {.all.}]
-import ./[crdt_types, ycrdt_compat_new]
+import ./[crdt_types, ycrdt_futhark]
 
 # Template for privileged access to CRDT internals
 template privileged_crdt =

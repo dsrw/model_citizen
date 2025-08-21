@@ -1,6 +1,6 @@
 {.passL: "-L../lib -lyrs -Wl,-rpath,../lib".}
 import std/[unittest]
-import model_citizen/crdt/ycrdt_compat_new
+import model_citizen/crdt/ycrdt_futhark
 
 proc run*() =
   suite "Y-CRDT FFI Test":

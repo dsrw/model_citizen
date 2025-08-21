@@ -1,6 +1,6 @@
 import std/[times, tables, sequtils, monotimes, sets]
 import model_citizen/[types {.all.}]
-import ./ycrdt_compat_new
+import ./ycrdt_futhark
 
 type
   CrdtMode* = enum
