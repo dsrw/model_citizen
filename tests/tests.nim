@@ -1,6 +1,7 @@
 import
   model_citizen, basic_tests, threading_tests, network_tests, publish_tests,
-  object_tests, utils_tests, validation_tests, error_handling_tests, memory_tests
+  object_tests, utils_tests, validation_tests, error_handling_tests, memory_tests,
+  crdt_basic_tests
 
 Zen.bootstrap
 
@@ -13,3 +14,4 @@ utils_tests.run()
 validation_tests.run()
 error_handling_tests.run()
 memory_tests.run()
+crdt_basic_tests.run()
