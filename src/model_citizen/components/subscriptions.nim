@@ -1,5 +1,4 @@
-import
-  std/[importutils, tables, sets, sequtils, algorithm, intsets, locks, math]
+import std/[net, importutils, tables, sets, sequtils, algorithm, intsets, math]
 
 import pkg/threading/channels {.all.}
 import pkg/[flatty, supersnappy]
@@ -333,7 +332,6 @@ proc subscribe*(
   )
 
   var ctx_id = ""
-  var received_objects: HashSet[string]
   var finished = false
   var remote_objects: HashSet[string]
   while not finished:
@@ -574,31 +572,39 @@ template changes*[T, O](self: Zen[T, O], pause_me, body) =
         template added(): bool =
           Added in change.changes
 
-        template added(obj: O): bool =
+        template added(obj: O): bool {.used.} =
           change.item == obj and added()
 
-        template removed(): bool =
+        template removed(): bool {.used.} =
           Removed in change.changes
 
-        template removed(obj: O): bool =
+        template removed(obj: O): bool {.used.} =
           change.item == obj and removed()
 
-        template modified(): bool =
+        template modified(): bool {.used.} =
           Modified in change.changes
 
-        template modified(obj: O): bool =
+        template modified(obj: O): bool {.used.} =
           change.item == obj and modified()
 
-        template touched(): bool =
+        template touched(): bool {.used.} =
           Touched in change.changes
 
-        template touched(obj: O): bool =
+        template touched(obj: O): bool {.used.} =
           change.item == obj and touched()
 
-        template closed(): bool =
+        template closed(): bool {.used.} =
           Closed in change.changes
 
         body
 
 template changes*[T, O](self: Zen[T, O], body) =
   changes(self, true, body)
+
+proc close*(self: ZenContext) =
+  for sub in self.subscribers.filter_it(it.kind == Remote):
+    self.unsubscribe(sub)
+  if ?self.reactor:
+    private_access Reactor
+    self.reactor.socket.close()
+  self.reactor = nil

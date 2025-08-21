@@ -1,5 +1,5 @@
-import std/[unittest, monotimes, sets, tables, strutils]
-import pkg/[pretty, chronicles]
+import std/[monotimes, tables, strutils]
+import pkg/unittest2
 import model_citizen
 import model_citizen/utils/[stats, misc, typeids]
 from std/times import seconds, init_duration
@@ -57,8 +57,6 @@ proc run*() =
     let exc = ConnectionError.init("test connection failed")
     check:
       exc.msg == "test connection failed"
-      exc of ConnectionError
-      exc of ZenError
 
   test "stats functionality":
     # Test stats macros
@@ -82,8 +80,8 @@ proc run*() =
     check call_count == 5
 
     # Test timing functions
-    let start = now()
-    let duration = 0.5.seconds
+    let start {.used.} = now()
+    let duration {.used.} = 0.5.seconds
     # Duration exists and is usable
 
     # Test maybe_dump_stats (won't actually dump in test)

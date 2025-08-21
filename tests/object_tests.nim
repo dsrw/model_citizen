@@ -1,5 +1,4 @@
-import std/[unittest]
-import pkg/[pretty, chronicles]
+import pkg/unittest2
 import model_citizen
 import ./object_tests_types
 

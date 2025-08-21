@@ -3,8 +3,11 @@
 !/**/
 !*.*
 
+.claude/settings.local.json
+omnara*/
 nimcache/
 nimblecache/
+nimbledeps/
 htmldocs/
 nimble.develop
 nimble.paths

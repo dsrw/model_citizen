@@ -107,6 +107,109 @@ ctx2.subscribe(ctx1)
 # Changes in ctx1 objects automatically sync to ctx2
 ```
 
+## Coding Conventions
+
+This project follows specific naming conventions that differ from Nim's standard library:
+
+### Naming Style
+- **Variables and procedures**: Use `snake_case` exclusively (e.g., `my_variable`, `process_changes`)
+- **Types**: Use `UpperCamelCase` (e.g., `ZenContext`, `ChangeKind`)
+- **Constants**: Use `snake_case` (e.g., `default_flags`)
+- **Fields**: Use `snake_case` (e.g., `object_id`, `type_name`)
+
+### Standard Library Usage
+- **IMPORTANT**: When calling Nim standard library functions, always use `snake_case` style
+- Use `init_hash_set()` instead of `initHashSet()`
+- Use `to_flatty()` instead of `toFlatty()`
+- Use `from_flatty()` instead of `fromFlatty()`
+- Use `add_int64()` instead of `addInt64()`
+- Use `read_int64()` instead of `readInt64()`
+
+### Style Rationale
+- While Nim is style-insensitive and the standard library uses `lowerCamelCase`, this project consistently uses `snake_case` for all identifiers
+- This applies even when calling standard library functions - always convert to `snake_case`
+- Type names follow `UpperCamelCase` to distinguish them from variables and procedures
+
+### Examples
+```nim
+# Correct style for this project
+var my_table = init_table[string, int]()
+let serialized_data = my_object.to_flatty()
+proc process_user_input(input: string): bool = ...
+type UserPreferences = object
+  theme_name: string
+  font_size: int
+
+# Avoid (even though valid Nim)
+var myTable = initTable[string, int]()
+let serializedData = myObject.toFlatty()
+proc processUserInput(input: string): bool = ...
+```
+
+## Custom Language Extensions
+
+This project defines several custom operators and conventions that extend Nim's standard library:
+
+### Custom `?` Operator (Truth Testing)
+The project defines a custom `?` operator in `utils/misc.nim` for consistent truth/presence checking across different types:
+
+```nim
+# Usage examples
+if ?my_ref_object:        # checks if not nil
+if ?my_string:            # checks if not empty
+if ?my_sequence:          # checks if length > 0
+if ?my_set:               # checks if not empty
+if ?my_option:            # checks if is_some
+if ?my_number:            # checks if != 0
+```
+
+**Rule**: Always use `?` instead of manual nil checks, emptiness checks, or is_some calls.
+
+### TypeName.init Convention
+All type initializers must follow the `TypeName.init()` pattern:
+
+```nim
+# Correct
+var ctx = ZenContext.init(id = "main")
+var table = ZenTable[string, int].init()
+
+# Avoid
+var ctx = newZenContext(id = "main")  # Never use new prefix
+```
+
+**Rule**: If a stdlib type doesn't follow this pattern, create a helper template in `utils/misc.nim`:
+```nim
+template init*(_: type SomeStdlibType, args...): SomeStdlibType =
+  init_some_stdlib_type(args)
+```
+
+### Access Control Keywords
+The project uses custom access control through special keywords:
+
+- **`privileged`**: Marks procedures that access internal object state
+- **`private_access TypeName`**: Grants access to private fields of a type
+- **`mutate(op_ctx):`**: Wraps mutation operations with context tracking
+
+```nim
+proc my_internal_operation() =
+  privileged                    # Indicates this accesses private state
+  private_access ZenBase        # Grants access to ZenBase private fields
+  mutate(op_ctx):              # Tracks mutations with operation context
+    self.internal_field = value
+```
+
+### Custom Templates and Patterns
+
+- **`fail(msg)`**: Custom assertion template that raises with a message
+- **String interpolation with `\`**: Custom string formatting template
+- **`make_discardable()`**: Workaround for template discardability
+- **Conditional compilation**: Uses `when defined(zen_trace)`, `when defined(dump_zen_objects)`, etc.
+
+### Method Call Patterns
+- Use `.to_flatty()` and `.from_flatty()` for serialization (always snake_case)
+- Use `.track()` and `.untrack()` for callback management
+- Use `+=` and `-=` operators for collection modifications
+
 ## Development Notes
 
 - The codebase uses advanced Nim features like macros, templates, and meta-programming
@@ -126,8 +229,26 @@ ctx2.subscribe(ctx1)
   ```
 
 ### Commit Guidelines
-- Prefer single-line commit messages when possible
-- Use Co-Authored-By tag for attribution when working with AI assistance:
+- **ALWAYS use single-line commit messages** - no multi-line descriptions, bullet points, or "Generated with Claude Code" messages
+- **Simple format**: `Brief description of what was done`
+- **Co-Authored-By tag**: Always include when working with AI assistance:
   ```
   Co-Authored-By: Claude <noreply@anthropic.com>
   ```
+
+#### Examples
+```bash
+# Correct
+git commit -m "Fix camelCase usage in deps.nim
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# Avoid - no bullet points, itemized changes, or generated messages
+git commit -m "Fix camelCase usage and document coding conventions
+
+- Fix snake_case usage in deps.nim for stdlib functions  
+- Add comprehensive coding conventions section to CLAUDE.md
+🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```

@@ -1,5 +1,5 @@
-import std/[unittest, sets, tables, times, strutils]
-import pkg/[pretty, chronicles]
+import std/[sets, tables, times, strutils]
+import pkg/unittest2
 import model_citizen
 import model_citizen/components/type_registry
 

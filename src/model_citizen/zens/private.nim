@@ -37,7 +37,7 @@ Op Trace:
     result.source = \"{source} {new_source}"
 
 template setup_op_ctx*(self: ZenContext) =
-  let op_ctx =
+  let op_ctx {.used.} =
     if ?op_ctx:
       op_ctx
     else:

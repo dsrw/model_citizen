@@ -57,7 +57,7 @@ type
       id*: int
       debug*: string
 
-  CreateInitializer = proc(
+  CreateInitializer {.used.} = proc(
     bin: string,
     ctx: ZenContext,
     id: string,
@@ -76,7 +76,7 @@ type
     obj*: ref RootObj
     references*: HashSet[string]
 
-  RegisteredType = object
+  RegisteredType {.used.} = object
     tid*: int
     stringify*: proc(self: ref RootObj): string {.no_side_effect.}
     parse*:
@@ -157,7 +157,7 @@ type
 
   ZenTable*[K, V] = Zen[Table[K, V], Pair[K, V]]
   ZenSeq*[T] = Zen[seq[T], T]
-  ZenSet*[T] = Zen[set[T], T]
+  ZenSet*[T] = Zen[HashSet[T], T] # For any hashable type including enums
   ZenValue*[T] = Zen[T, T]
 
 const default_flags* = {SyncLocal, SyncRemote}

@@ -1,5 +1,5 @@
-import std/[net, tables, times, options, sugar, math]
-import pkg/chronicles, pkg/threading/channels {.all.}
+import std/[tables, times, options, sugar, math]
+import pkg/threading/channels {.all.}
 
 import
   model_citizen/[
@@ -7,7 +7,7 @@ import
     types {.all.},
     utils/misc,
     zens/validations,
-    components/private/global_state
+    components/private/global_state,
   ]
 
 import ./private
@@ -141,9 +141,3 @@ proc clear*(self: ZenContext) =
   debug "Clearing ZenContext"
   self.objects.clear
   self.objects_need_packing = false
-
-proc close*(self: ZenContext) =
-  if ?self.reactor:
-    private_access Reactor
-    self.reactor.socket.close()
-  self.reactor = nil

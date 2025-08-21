@@ -2,13 +2,13 @@ import std/[typetraits, macros, macrocache]
 import model_citizen/[core, components/private/tracking]
 import
   model_citizen/types {.all.},
-  model_citizen/zens/[validations, operations, contexts, private]
+  model_citizen/zens/[operations, contexts, private]
 
-export new_ident_node
+{.warning[Deprecated]: off.}:
+  export new_ident_node
 
 const initializers = CacheSeq"initializers"
 var type_initializers: Table[int, CreateInitializer]
-var initialized = false
 
 proc ctx(): ZenContext =
   Zen.thread_ctx
@@ -270,9 +270,24 @@ proc init*[O](
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
-): Zen[set[O], O] =
+): Zen[HashSet[O], O] =
   ctx.setup_op_ctx
-  var self = Zen[set[O], O](flags: flags).defaults(ctx, id, op_ctx)
+  var self = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
+
+  mutate(op_ctx):
+    self.tracked = tracked.to_hash_set
+  result = self
+
+proc init*[O](
+    _: type Zen,
+    tracked: HashSet[O],
+    flags = default_flags,
+    ctx = ctx(),
+    id = "",
+    op_ctx = OperationContext(),
+): Zen[HashSet[O], O] =
+  ctx.setup_op_ctx
+  var self = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked
@@ -326,9 +341,20 @@ proc init*[O](
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
-): Zen[set[O], O] =
+): Zen[HashSet[O], O] =
   ctx.setup_op_ctx
-  result = Zen[set[O], O](flags: flags).defaults(ctx, id, op_ctx)
+  result = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
+
+proc init*[O](
+    _: type Zen,
+    T: type HashSet[O],
+    flags = default_flags,
+    ctx = ctx(),
+    id = "",
+    op_ctx = OperationContext(),
+): Zen[HashSet[O], O] =
+  ctx.setup_op_ctx
+  result = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
 
 proc init*[K, V](
     _: type Zen,

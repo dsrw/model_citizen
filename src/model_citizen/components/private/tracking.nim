@@ -1,7 +1,5 @@
-import
-  std/[importutils, tables, sets, sequtils, algorithm, intsets, locks, sugar]
+import std/[importutils, tables, sets, sequtils, intsets, locks, sugar]
 
-import pkg/[flatty, supersnappy, threading/channels {.all.}]
 import
   model_citizen/
     [core, components/type_registry, zens/contexts, zens/private, types {.all.}]
@@ -11,6 +9,9 @@ proc `-`*[T](a, b: seq[T]): seq[T] =
     it notin b
 
 template `&`*[T](a, b: set[T]): set[T] =
+  a + b
+
+template `&`*[T](a, b: HashSet[T]): HashSet[T] =
   a + b
 
 proc trigger_callbacks*[T, O](self: Zen[T, O], changes: seq[Change[O]]) =
@@ -84,10 +85,10 @@ proc unlink*[T: Pair](pair: T) =
 
 proc link_or_unlink*[T, O](self: Zen[T, O], change: Change[O], link: bool) =
   log_defaults
-  template value(change: Change[Pair]): untyped =
+  template value(change: Change[Pair]): untyped {.used.} =
     change.item.value
 
-  template value(change: not Change[Pair]): untyped =
+  template value(change: not Change[Pair]): untyped {.used.} =
     change.item
 
   if TrackChildren in self.flags:
@@ -142,7 +143,7 @@ proc process_changes*[T](
     self.publish_changes(changes, op_ctx)
     self.trigger_callbacks(changes)
 
-proc process_changes*[T: seq | set, O](
+proc process_changes*[T: seq | set | HashSet, O](
     self: Zen[T, O],
     initial: sink T,
     op_ctx: OperationContext,
@@ -261,7 +262,7 @@ proc assign*[O](self: ZenSeq[O], values: seq[O], op_ctx: OperationContext) =
     self.add(value, op_ctx = op_ctx)
 
 proc assign*[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
-  self.change({value}, add = true, op_ctx = op_ctx)
+  self.change([value].to_hash_set, add = true, op_ctx = op_ctx)
 
 proc assign*[K, V](
     self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext
@@ -275,7 +276,7 @@ proc unassign*[O](self: ZenSeq[O], value: O, op_ctx: OperationContext) =
   self.change(@[value], false, op_ctx = op_ctx)
 
 proc unassign*[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
-  self.change({value}, false, op_ctx = op_ctx)
+  self.change([value].to_hash_set, false, op_ctx = op_ctx)
 
 proc unassign*[K, V](
     self: ZenTable[K, V], pair: Pair[K, V], op_ctx: OperationContext
