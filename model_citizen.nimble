@@ -9,3 +9,6 @@ requires(
   "chronicles", "flatty", "netty", "supersnappy", "unittest2",
   "https://github.com/dsrw/nanoid.nim 0.2.1", "metrics#51f1227"
 )
+
+task test, "Run tests":
+  exec "nimble c -r tests/tests.nim"
