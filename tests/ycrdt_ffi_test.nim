@@ -1,5 +1,6 @@
+{.passL: "-L../lib -lyrs -Wl,-rpath,../lib".}
 import std/[unittest]
-import model_citizen/crdt/ycrdt_bindings
+import model_citizen/crdt/ycrdt_compat_new
 
 proc run*() =
   suite "Y-CRDT FFI Test":
@@ -36,7 +37,7 @@ proc run*() =
         check map != nil
         echo "Created Y-CRDT map"
         
-        let txn = ydoc_write_transaction(doc)
+        let txn = ydoc_write_transaction_simple(doc)
         check txn != nil
         echo "Created write transaction"
         
