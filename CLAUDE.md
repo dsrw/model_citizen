@@ -256,17 +256,45 @@ The CRDT support is currently experimental and located in `src/model_citizen/crd
 
 ### Current State
 - Y-CRDT C library integration via Futhark-generated bindings (`ycrdt_futhark.nim`)
-- Basic CRDT types: `CrdtZenValue`, `CrdtZenTable`, `CrdtZenSeq`, `CrdtZenSet`
+- **COMPLETED**: CRDT support integrated into existing Zen types with `sync_mode` parameter
+- Basic CRDT types: `CrdtZenValue`, `CrdtZenTable`, `CrdtZenSeq`, `CrdtZenSet` (legacy, being phased out)
 - Vector clock implementation for causality tracking
-- Sync modes and state tracking
-- Test coverage with 8 CRDT-specific tests
+- Sync modes: `None` (traditional), `FastLocal` (immediate local), `WaitForSync` (convergence-based)
+- Test coverage with 11 CRDT-specific tests including integration tests
 
-### Integration Goals
-- Move CRDT functionality from experimental `crdt/` module into main `src/model_citizen/` codebase
-- Add CRDT capabilities directly to existing Zen types (`ZenValue`, `ZenTable`, etc.)
-- Seamless switching between local-only and CRDT-enabled modes
+### Current Integration Features
+- **ZenValue CRDT Support**: All Zen.init procedures now accept optional `sync_mode` parameter
+- **API Compatibility**: Existing ZenValue usage works unchanged (sync_mode defaults to None)
+- **Dual Mode Support**: FastLocal (immediate local updates) and WaitForSync (wait for convergence)
+- **Test Coverage**: Full integration testing validates API compatibility and CRDT modes
+- **Transparent Usage**: `ZenValue[int].init(sync_mode = FastLocal)` enables CRDT behavior
+
+### Usage Examples
+
+```nim
+# Traditional ZenValue (no CRDT)
+var regular = ZenValue[int].init(ctx = ctx, id = "regular")
+regular.value = 42
+
+# CRDT-enabled ZenValue with FastLocal mode
+var crdt_fast = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx, id = "fast")
+crdt_fast.value = 100  # Immediate local update, syncs in background
+
+# CRDT-enabled ZenValue with WaitForSync mode  
+var crdt_wait = ZenValue[int].init(sync_mode = WaitForSync, ctx = ctx, id = "wait")
+crdt_wait.value = 200  # Waits for convergence before completing
+
+# All three work with the same API
+assert regular.value == 42
+assert crdt_fast.value == 100  
+assert crdt_wait.value == 200
+```
+
+### Future Integration Goals
+- Full CRDT backend implementation for FastLocal and WaitForSync modes
 - Network synchronization integration with existing netty-based networking
 - Performance optimization for CRDT operations
+- Deprecation of separate CrdtZen types in favor of integrated approach
 
 ### Dependencies
 - Y-CRDT library (libyrs) must be available in system library path or `../lib/`

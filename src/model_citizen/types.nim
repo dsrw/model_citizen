@@ -10,6 +10,11 @@ type
     SyncRemote
     SyncAllNoOverwrite
 
+  SyncMode* = enum
+    None          ## Traditional Zen object without CRDT
+    FastLocal     ## Apply changes immediately locally, sync in background
+    WaitForSync   ## Wait for CRDT convergence before applying changes
+
   ChangeKind* = enum
     Created
     Added
@@ -152,6 +157,7 @@ type
   ZenObject[T, O] = object of ZenBase
     changed_callbacks: OrderedTable[ZID, ChangeCallback[O]]
     tracked: T
+    sync_mode*: SyncMode      ## CRDT sync mode (None for regular Zen objects)
 
   Zen*[T, O] = ref object of ZenObject[T, O]
 
