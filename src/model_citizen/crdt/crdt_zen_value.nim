@@ -128,10 +128,8 @@ proc sync_to_crdt_async*[T](self: CrdtZenValue[T], new_value: T) =
     if txn != nil:
       defer: ytransaction_commit(txn)
       
-      # Store value in Y-CRDT map
-      let y_input = create_yinput(new_value)
-      
-      ymap_insert(self.y_map, txn, self.field_key.cstring, y_input)
+      # Store value in Y-CRDT map using safe template
+      ymap_insert_safe(self.y_map, txn, self.field_key.cstring, new_value)
   else:
     # Stub implementation - just update CRDT value
     discard

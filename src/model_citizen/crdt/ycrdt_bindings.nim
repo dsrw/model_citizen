@@ -13,18 +13,23 @@ else:
 
 {.pragma: ycrdt, cdecl, dynlib: ycrdt_lib.}
 
-# Core Y-CRDT types - opaque pointers
+# Core Y-CRDT types - opaque pointers matching C definitions
 type
   YDoc* = pointer
   YTransaction* = pointer
-  YText* = pointer
-  YArray* = pointer
-  YMap* = pointer
-  YXmlElement* = pointer
-  YXmlText* = pointer
+  Branch* = pointer  # This is the actual shared data type
+  YText* = Branch    # All shared types are actually Branch pointers
+  YArray* = Branch
+  YMap* = Branch
+  YXmlElement* = Branch
+  YXmlText* = Branch
   YValue* = pointer
-  YInput* = pointer
   YOutput* = pointer
+  
+  YInput* = object
+    tag*: int8
+    len*: uint32
+    value*: pointer  # Simplified for now - pointer to union content
   
   # Binary data representation
   YBinary* = object
@@ -60,9 +65,9 @@ proc ydoc_new*(): YDoc {.importc: "ydoc_new", ycrdt.}
 proc ydoc_destroy*(doc: YDoc) {.importc: "ydoc_destroy", ycrdt.}
 
 # Root type access (Branch types)
-proc ytext*(doc: YDoc, name: cstring): YText {.importc: "ytext", ycrdt.}
-proc yarray*(doc: YDoc, name: cstring): YArray {.importc: "yarray", ycrdt.}
-proc ymap*(doc: YDoc, name: cstring): YMap {.importc: "ymap", ycrdt.}
+proc ytext*(doc: YDoc, name: cstring): Branch {.importc: "ytext", ycrdt.}
+proc yarray*(doc: YDoc, name: cstring): Branch {.importc: "yarray", ycrdt.}
+proc ymap*(doc: YDoc, name: cstring): Branch {.importc: "ymap", ycrdt.}
 
 # Transaction operations
 proc ydoc_read_transaction*(doc: YDoc): YTransaction {.importc: "ydoc_read_transaction", ycrdt.}
@@ -76,23 +81,23 @@ proc ytext_delete*(text: YText, txn: YTransaction, index: uint32, len: uint32) {
 proc ytext_to_string*(text: YText, txn: YTransaction): cstring {.importc: "ytext_to_string", ycrdt.}
 proc ytext_len*(text: YText, txn: YTransaction): uint32 {.importc: "ytext_len", ycrdt.}
 
-# Map operations (for key-value storage)
-proc ymap_insert*(map: YMap, txn: YTransaction, key: cstring, value: YInput) {.importc: "ymap_insert", ycrdt.}
-proc ymap_get*(map: YMap, txn: YTransaction, key: cstring): YOutput {.importc: "ymap_get", ycrdt.}
-proc ymap_remove*(map: YMap, txn: YTransaction, key: cstring): YOutput {.importc: "ymap_remove", ycrdt.}
+# Map operations (for key-value storage) 
+proc ymap_insert*(map: Branch, txn: YTransaction, key: cstring, value: ptr YInput) {.importc: "ymap_insert", ycrdt.}
+proc ymap_get*(map: Branch, txn: YTransaction, key: cstring): YOutput {.importc: "ymap_get", ycrdt.}
+proc ymap_remove*(map: Branch, txn: YTransaction, key: cstring): YOutput {.importc: "ymap_remove", ycrdt.}
 
 # Value creation and extraction
 proc yinput_string*(value: cstring): YInput {.importc: "yinput_string", ycrdt.}
 proc yinput_long*(value: int64): YInput {.importc: "yinput_long", ycrdt.}
 proc yinput_float*(value: float64): YInput {.importc: "yinput_float", ycrdt.}
-proc yinput_bool*(value: bool): YInput {.importc: "yinput_bool", ycrdt.}
+proc yinput_bool*(value: uint8): YInput {.importc: "yinput_bool", ycrdt.}
 # Note: YInput is a value type, no destroy needed
 
 proc youtput_kind*(output: YOutput): YValueKind {.importc: "youtput_kind", ycrdt.}
 proc youtput_to_string*(output: YOutput): cstring {.importc: "youtput_to_string", ycrdt.}
 proc youtput_to_int64*(output: YOutput): int64 {.importc: "youtput_to_int64", ycrdt.}
 proc youtput_to_float64*(output: YOutput): float64 {.importc: "youtput_to_float64", ycrdt.}
-proc youtput_to_bool*(output: YOutput): bool {.importc: "youtput_to_bool", ycrdt.}
+proc youtput_to_bool*(output: YOutput): uint8 {.importc: "youtput_to_bool", ycrdt.}
 proc youtput_destroy*(output: YOutput) {.importc: "youtput_destroy", ycrdt.}
 
 # State synchronization
@@ -112,6 +117,26 @@ proc to_string*(output: YOutput): string =
       result = $cstr
     youtput_destroy(output)
 
+# Template for safe Y-CRDT map insertion with proper pointer handling
+template ymap_insert_safe*(map: Branch, txn: YTransaction, key: cstring, value: untyped) =
+  when typeof(value) is string:
+    var input = yinput_string(value.cstring)
+  elif typeof(value) is int64:
+    var input = yinput_long(value)
+  elif typeof(value) is float64:
+    var input = yinput_float(value)
+  elif typeof(value) is bool:
+    var input = yinput_bool(if value: 1'u8 else: 0'u8)
+  elif typeof(value) is int:
+    var input = yinput_long(value.int64)
+  elif typeof(value) is float:
+    var input = yinput_float(value.float64)
+  else:
+    {.error: "Unsupported type for Y-CRDT input".}
+  
+  ymap_insert(map, txn, key, addr input)
+
+# Keep the old function for backward compatibility but make it safer
 proc create_yinput*[T](value: T): YInput =
   when T is string:
     result = yinput_string(value.cstring)
@@ -120,7 +145,7 @@ proc create_yinput*[T](value: T): YInput =
   elif T is float64:
     result = yinput_float(value)
   elif T is bool:
-    result = yinput_bool(value)
+    result = yinput_bool(if value: 1'u8 else: 0'u8)
   elif T is int:
     result = yinput_long(value.int64)
   elif T is float:
@@ -142,7 +167,7 @@ proc extract_value*[T](output: YOutput, target_type: type T): T =
   elif T is float64:
     result = youtput_to_float64(output)
   elif T is bool:
-    result = youtput_to_bool(output)
+    result = youtput_to_bool(output) != 0
   elif T is int:
     result = youtput_to_int64(output).int
   elif T is float:
