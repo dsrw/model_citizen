@@ -27,3 +27,13 @@ proc from_flatty*[T](s: var HashSet[T], data: string) =
 proc to_hash_set*[T](s: seq[T]): HashSet[T] =
   for item in s:
     result.incl(item)
+
+proc to_hash_set*[T](s: set[T]): HashSet[T] =
+  for item in s:
+    result.incl(item)
+
+proc `==`*[T](hs: HashSet[T], s: set[T]): bool =
+  hs == s.to_hash_set
+
+proc `==`*[T](s: set[T], hs: HashSet[T]): bool =
+  s.to_hash_set == hs

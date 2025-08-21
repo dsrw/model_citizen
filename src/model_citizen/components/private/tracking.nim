@@ -261,10 +261,7 @@ proc assign*[O](self: ZenSeq[O], values: seq[O], op_ctx: OperationContext) =
   for value in values:
     self.add(value, op_ctx = op_ctx)
 
-proc assign*[O](self: ZenOrdinalSet[O], value: O, op_ctx: OperationContext) =
-  self.change({value}, add = true, op_ctx = op_ctx)
-
-proc assign*[O](self: ZenHashSet[O], value: O, op_ctx: OperationContext) =
+proc assign*[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
   self.change([value].to_hash_set, add = true, op_ctx = op_ctx)
 
 proc assign*[K, V](
@@ -278,10 +275,7 @@ proc assign*[T, O](self: Zen[T, O], value: O, op_ctx: OperationContext) =
 proc unassign*[O](self: ZenSeq[O], value: O, op_ctx: OperationContext) =
   self.change(@[value], false, op_ctx = op_ctx)
 
-proc unassign*[O](self: ZenOrdinalSet[O], value: O, op_ctx: OperationContext) =
-  self.change({value}, false, op_ctx = op_ctx)
-
-proc unassign*[O](self: ZenHashSet[O], value: O, op_ctx: OperationContext) =
+proc unassign*[O](self: ZenSet[O], value: O, op_ctx: OperationContext) =
   self.change([value].to_hash_set, false, op_ctx = op_ctx)
 
 proc unassign*[K, V](

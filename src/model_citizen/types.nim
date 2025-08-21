@@ -157,8 +157,7 @@ type
 
   ZenTable*[K, V] = Zen[Table[K, V], Pair[K, V]]
   ZenSeq*[T] = Zen[seq[T], T]
-  ZenOrdinalSet*[T] = Zen[set[T], T] # For ordinal/enum types (flags)
-  ZenHashSet*[T] = Zen[HashSet[T], T] # For any hashable type
+  ZenSet*[T] = Zen[HashSet[T], T] # For any hashable type including enums
   ZenValue*[T] = Zen[T, T]
 
 const default_flags* = {SyncLocal, SyncRemote}

@@ -57,6 +57,15 @@ proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
     mutate(op_ctx):
       self.tracked = value
 
+proc `value=`*[T](self: Zen[HashSet[T], T], value: set[T], op_ctx = OperationContext()) =
+  privileged
+  assert self.valid
+  self.ctx.setup_op_ctx
+  let hash_set_value = value.to_hash_set
+  if self.tracked != hash_set_value:
+    mutate(op_ctx):
+      self.tracked = hash_set_value
+
 proc value*[T, O](self: Zen[T, O]): T =
   privileged
   assert self.valid
@@ -169,13 +178,13 @@ proc touch*[T, O](
   assert self.valid
   self.put(key, value, touch = true, op_ctx = op_ctx)
 
-proc touch*[T: set, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
-  assert self.valid
-  self.change_and_touch({value}, true, op_ctx = op_ctx)
-
 proc touch*[T: HashSet, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   assert self.valid
   self.change_and_touch([value].to_hash_set, true, op_ctx = op_ctx)
+
+proc touch*[T](self: Zen[HashSet[T], T], value: set[T], op_ctx = OperationContext()) =
+  assert self.valid
+  self.change_and_touch(value.to_hash_set, true, op_ctx = op_ctx)
 
 proc touch*[T: seq, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   assert self.valid
@@ -195,11 +204,7 @@ proc len*(self: Zen): int =
   assert self.valid
   self.tracked.len
 
-proc `+`*[O](self, other: ZenOrdinalSet[O]): set[O] =
-  privileged
-  self.tracked + other.tracked
-
-proc `+`*[O](self, other: ZenHashSet[O]): HashSet[O] =
+proc `+`*[O](self, other: ZenSet[O]): HashSet[O] =
   privileged
   self.tracked + other.tracked
 
@@ -207,13 +212,13 @@ proc `+=`*[T, O](self: Zen[T, O], value: T) =
   assert self.valid
   self.change(value, true, op_ctx = OperationContext())
 
-proc `+=`*[O](self: ZenOrdinalSet[O], value: O) =
-  assert self.valid
-  self.change({value}, true, op_ctx = OperationContext())
-
-proc `+=`*[O](self: ZenHashSet[O], value: O) =
+proc `+=`*[O](self: ZenSet[O], value: O) =
   assert self.valid
   self.change([value].to_hash_set, true, op_ctx = OperationContext())
+
+proc `+=`*[T](self: Zen[HashSet[T], T], value: set[T]) =
+  assert self.valid
+  self.change(value.to_hash_set, true, op_ctx = OperationContext())
 
 proc `+=`*[T: seq, O](self: Zen[T, O], value: O) =
   assert self.valid
@@ -234,6 +239,10 @@ proc `-=`*[T: set, O](self: Zen[T, O], value: O) =
 proc `-=`*[T: HashSet, O](self: Zen[T, O], value: O) =
   assert self.valid
   self.change([value].to_hash_set, false, op_ctx = OperationContext())
+
+proc `-=`*[T](self: Zen[HashSet[T], T], value: set[T]) =
+  assert self.valid
+  self.change(value.to_hash_set, false, op_ctx = OperationContext())
 
 proc `-=`*[T: seq, O](self: Zen[T, O], value: O) =
   assert self.valid
@@ -302,8 +311,20 @@ proc destroy*[T, O](self: Zen[T, O], publish = true) =
 proc `~=`*[T, O](a: Zen[T, O], b: T) =
   `value=`(a, b)
 
+proc `~=`*[T](a: Zen[HashSet[T], T], b: set[T]) =
+  `value=`(a, b)
+
 proc `~==`*[T, O](a: Zen[T, O], b: T): bool =
   value(a) == b
+
+proc `~==`*[T](a: Zen[HashSet[T], T], b: set[T]): bool =
+  value(a) == b.to_hash_set
+
+proc `==`*[T](hs: HashSet[T], s: set[T]): bool =
+  hs == s.to_hash_set
+
+proc `==`*[T](s: set[T], hs: HashSet[T]): bool =
+  s.to_hash_set == hs
 
 proc `~==~`*[T, O](a: Zen[T, O], b: Zen[T, O]): bool =
   value(a) == value(b)
@@ -311,7 +332,7 @@ proc `~==~`*[T, O](a: Zen[T, O], b: Zen[T, O]): bool =
 proc `?~`*[T](self: ZenValue[T]): bool =
   ? ~self
 
-iterator items*[T](self: ZenOrdinalSet[T] | ZenHashSet[T] | ZenSeq[T]): T =
+iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
   privileged
   assert self.valid
   for item in self.tracked.items:

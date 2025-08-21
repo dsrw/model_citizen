@@ -329,7 +329,7 @@ proc run*() =
     var b = ~set[TestFlag]
     check:
       a is Zen[seq[int], int]
-      b is Zen[set[TestFlag], TestFlag]
+      b is Zen[HashSet[TestFlag], TestFlag]
 
   test "nested_triggers":
     type
@@ -341,7 +341,7 @@ proc run*() =
         id: int
         parent: Unit
         units: Zen[seq[Unit], Unit]
-        flags: ZenOrdinalSet[UnitFlags]
+        flags: ZenSet[UnitFlags]
 
     proc init(
         _: type Unit, id = 0, flags = {TrackChildren, SyncLocal, SyncRemote}
@@ -737,7 +737,7 @@ proc run*() =
       Three
 
     local_and_remote:
-      var src = ZenOrdinalSet[Flags].init
+      var src = ZenSet[Flags].init
       ctx2.boop
       var dest = ctx2[src]
       src += One
@@ -749,7 +749,7 @@ proc run*() =
 
   test "sync hash set":
     local_and_remote:
-      var src = ZenHashSet[string].init
+      var src = ZenSet[string].init
       ctx2.boop
       var dest = ctx2[src]
       src += "hello"
@@ -762,7 +762,7 @@ proc run*() =
       check "world" in src.value
 
   test "hash sets":
-    var s = ZenHashSet[string].init
+    var s = ZenSet[string].init
     s += "hello"
     s += "world"
 
@@ -801,8 +801,8 @@ proc run*() =
     s.untrack(zid)
 
   test "hash set operations":
-    var s1 = ZenHashSet[string].init
-    var s2 = ZenHashSet[string].init
+    var s1 = ZenSet[string].init
+    var s2 = ZenSet[string].init
 
     s1 += "a"
     s1 += "b"
@@ -821,7 +821,7 @@ proc run*() =
       name: string
       age: int
 
-    var s = ZenHashSet[Person].init
+    var s = ZenSet[Person].init
     let person1 = Person(name: "Alice", age: 30)
     let person2 = Person(name: "Bob", age: 25)
 
