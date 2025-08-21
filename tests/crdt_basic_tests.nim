@@ -1,3 +1,4 @@
+{.passL: "-L../lib -lyrs -Wl,-rpath,../lib".}
 import std/[unittest, strutils]
 import model_citizen
 

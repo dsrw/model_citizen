@@ -1,7 +1,7 @@
 import std/[times, json, tables]
 import model_citizen/[core, types {.all.}, utils]
 import model_citizen/zens/[contexts, validations, private, initializers {.all.}]
-import ./[crdt_types, ycrdt_bindings]
+import ./[crdt_types, ycrdt_compat_new]
 
 # Template for privileged access to CRDT internals
 template privileged_crdt =
@@ -36,6 +36,7 @@ proc init*[T](_: type CrdtZenValue[T],
   result.pending_corrections = @[]
   result.last_sync_time = get_mono_time()
   result.sync_callbacks = init_table[ZID, proc(state: SyncState) {.gcsafe.}]()
+  result.change_callbacks = init_table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]()
   
   # Initialize Y-CRDT structures (stub for now - will work without Y-CRDT library)
   when defined(with_ycrdt):
@@ -124,7 +125,7 @@ proc sync_to_crdt_async*[T](self: CrdtZenValue[T], new_value: T) =
   
   when defined(with_ycrdt):
     # Create Y-CRDT transaction  
-    let txn = ydoc_write_transaction(self.y_doc)
+    let txn = ydoc_write_transaction_simple(self.y_doc)
     if txn != nil:
       defer: ytransaction_commit(txn)
       
@@ -246,20 +247,18 @@ proc track*[T](self: CrdtZenValue[T],
   privileged_crdt
   assert self.valid
   
-  # Simple stub implementation for now
-  # In full implementation, this would integrate with existing track infrastructure
+  # Store callback properly
   inc self.ctx.changed_callback_zid
   let zid = self.ctx.changed_callback_zid
-  
-  # Store callback for later (stub)
-  # TODO: Integrate with actual change system
+  self.change_callbacks[zid] = callback
   result = zid
 
 # Trigger callbacks helper
 proc trigger_callbacks*[T](self: CrdtZenValue[T], changes: seq[CrdtChange[T]]) =
   privileged_crdt
-  # Stub implementation - in full version would call actual callbacks
-  discard
+  # Call all registered change callbacks
+  for callback in self.change_callbacks.values:
+    callback(changes)
 
 # Cleanup
 proc destroy*[T](self: CrdtZenValue[T], publish = true) =
