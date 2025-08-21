@@ -18,7 +18,7 @@ proc run*() =
         var input = yinput_string("Hello Y-CRDT!".cstring)
         check input.tag != 0
         check input.len > 0
-      except CatchableError as e:
+      except CatchableError:
         check false
         
     test "Basic Y-CRDT map operations":
@@ -36,7 +36,7 @@ proc run*() =
           try:
             var input = yinput_string("Hello Y-CRDT!".cstring)
             ymap_insert(map, txn, "greeting".cstring, addr input)
-          except CatchableError as e:
+          except CatchableError:
             check false
             
           ytransaction_commit(txn)

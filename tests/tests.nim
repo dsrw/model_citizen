@@ -2,7 +2,7 @@
 import
   model_citizen, basic_tests, threading_tests, network_tests, publish_tests,
   object_tests, utils_tests, validation_tests, error_handling_tests, memory_tests,
-  crdt_basic_tests
+  crdt_basic_tests, network_threading_tests, ycrdt_ffi_test
 
 Zen.bootstrap
 
@@ -16,3 +16,5 @@ validation_tests.run()
 error_handling_tests.run()
 memory_tests.run()
 crdt_basic_tests.run()
+network_threading_tests.run()
+ycrdt_ffi_test.run()
