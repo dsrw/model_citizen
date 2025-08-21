@@ -1,5 +1,5 @@
 {.passL: "-L../lib -lyrs -Wl,-rpath,../lib".}
-import std/[unittest, strutils]
+import pkg/unittest2
 import model_citizen
 
 proc run*() =

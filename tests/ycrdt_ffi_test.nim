@@ -1,5 +1,5 @@
 {.passL: "-L../lib -lyrs -Wl,-rpath,../lib".}
-import std/[unittest]
+import pkg/unittest2
 import model_citizen/crdt/ycrdt_futhark
 
 proc run*() =
@@ -10,56 +10,38 @@ proc run*() =
       check doc != nil
       
       if doc != nil:
-        echo "✅ Y-CRDT document created successfully!"
         ydoc_destroy(doc)
-      else:
-        echo "❌ Failed to create Y-CRDT document"
         
     test "Basic Y-CRDT input creation":
       # Test just creating YInput without any other operations
       try:
-        echo "Testing yinput_string..."
         var input = yinput_string("Hello Y-CRDT!".cstring)
-        echo "✅ yinput_string successful!"
-        echo "Input tag: ", input.tag
-        echo "Input len: ", input.len
+        check input.tag != 0
+        check input.len > 0
       except CatchableError as e:
-        echo "❌ yinput_string failed: ", e.msg
+        check false
         
     test "Basic Y-CRDT map operations":
       let doc = ydoc_new()
       check doc != nil
       
       if doc != nil:
-        echo "Created Y-CRDT document"
-        
         let map = ymap(doc, "test_map")
         check map != nil
-        echo "Created Y-CRDT map"
         
         let txn = ydoc_write_transaction_simple(doc)
         check txn != nil
-        echo "Created write transaction"
         
         if txn != nil:
-          echo "About to test string insertion..."
-          
-          # Test just one operation first - call directly
           try:
-            echo "Calling yinput_string..."
             var input = yinput_string("Hello Y-CRDT!".cstring)
-            echo "Created YInput successfully"
-            echo "Calling ymap_insert..."
             ymap_insert(map, txn, "greeting".cstring, addr input)
-            echo "✅ String insertion successful!"
           except CatchableError as e:
-            echo "❌ String insertion failed: ", e.msg
+            check false
             
           ytransaction_commit(txn)
-          echo "Transaction committed"
         
         ydoc_destroy(doc)
-        echo "Document destroyed"
 
 when is_main_module:
   run()
