@@ -28,8 +28,11 @@ task build_ycrdt, "Build Y-CRDT library":
     echo "✅ Y-CRDT library already exists: " & lib_file
     return
   
-  # Check if Rust is installed
-  if exec_cmd("which rustc") != 0:
+  # Check if Rust is installed by trying to run rustc
+  try:
+    exec "rustc --version"
+    echo "✅ Rust toolchain found"
+  except:
     echo "❌ Rust not found. Please install Rust first:"
     echo "   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
     quit(1)
