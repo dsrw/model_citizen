@@ -1,7 +1,7 @@
 import std/[times, json, tables]
 import model_citizen/[core, types {.all.}, utils]
 import model_citizen/zens/[contexts, validations, private, initializers {.all.}]
-import ./[crdt_types, ycrdt_futhark]
+import ./[crdt_types, ycrdt_futhark, document_coordinator]
 
 # Template for privileged access to CRDT internals
 template privileged_crdt =
@@ -38,9 +38,9 @@ proc init*[T](_: type CrdtZenValue[T],
   result.sync_callbacks = init_table[ZID, proc(state: SyncState) {.gcsafe.}]()
   result.change_callbacks = init_table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]()
   
-  # Initialize Y-CRDT structures (stub for now - will work without Y-CRDT library)
+  # Initialize Y-CRDT structures with shared document coordination
   when defined(with_ycrdt):
-    result.y_doc = ydoc_new()
+    result.y_doc = get_shared_document(ctx.id, "ZenValue", result.id)
     result.y_map = ymap(result.y_doc, result.id.cstring)
   
   # Set up initial value
@@ -264,10 +264,9 @@ proc trigger_callbacks*[T](self: CrdtZenValue[T], changes: seq[CrdtChange[T]]) =
 proc destroy*[T](self: CrdtZenValue[T], publish = true) =
   privileged_crdt
   
-  # Cleanup Y-CRDT resources
+  # Cleanup Y-CRDT resources - release shared document
   when defined(with_ycrdt):
-    if self.y_doc != nil:
-      ydoc_destroy(self.y_doc)
+    release_shared_document(self.ctx.id, "ZenValue", self.id)
     
   # Basic cleanup
   self.destroyed = true

@@ -1,14 +1,13 @@
 import std/[tables, sets, monotimes, strformat]
 import model_citizen/[core, types {.all.}, utils]
 import model_citizen/zens/[contexts, validations, private, initializers {.all.}]
-import ./[crdt_types, ycrdt_futhark]
+import ./[crdt_types, ycrdt_futhark, document_coordinator]
 
-# Thread-local CRDT context for managing Y-CRDT documents
-# We use maps to represent sets since Y-CRDT doesn't have native set support
+# Legacy thread-local contexts (deprecated - use document_coordinator instead)
 var crdt_set_contexts {.threadvar.}: Table[string, ptr YDoc_typedef]
 
-proc get_or_create_set_context(ctx_id: string): ptr YDoc_typedef =
-  ## Get or create Y-CRDT document for this context
+proc get_or_create_set_context(ctx_id: string): ptr YDoc_typedef {.deprecated: "Use document_coordinator instead".} =
+  ## Get or create Y-CRDT document for this context (deprecated)
   if ctx_id notin crdt_set_contexts:
     crdt_set_contexts[ctx_id] = ydoc_new()
   result = crdt_set_contexts[ctx_id]
@@ -51,8 +50,8 @@ proc init*[T](_: type CrdtZenSet[T], ctx: ZenContext, id: string = "", mode: Crd
   result.sync_callbacks = init_table[ZID, proc(state: SyncState) {.gcsafe.}]()
   result.change_callbacks = init_table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]()
   
-  # Initialize Y-CRDT integration
-  result.y_doc = get_or_create_set_context(ctx.id)
+  # Initialize Y-CRDT integration with shared document coordination
+  result.y_doc = get_shared_document(ctx.id, "ZenSet", result.id)
   result.field_key = "set_" & result.id
   
   # Get the Y-CRDT map for this set
@@ -287,6 +286,16 @@ proc untrack_sync*[T](self: CrdtZenSet[T], id: ZID) =
     self.sync_callbacks.del(id)
 
 # Debug and introspection
+proc destroy*[T](self: CrdtZenSet[T]) =
+  ## Clean up CRDT set resources and release shared document
+  if self != nil:
+    # Release the shared Y-CRDT document
+    release_shared_document(self.ctx.id, "ZenSet", self.id)
+    
+    # Clear callbacks
+    self.sync_callbacks.clear()
+    self.change_callbacks.clear()
+
 proc debug_info*[T](self: CrdtZenSet[T]): string =
   ## Get debug information about this CRDT set
   result = &"""CrdtZenSet[{T}] {self.id}:
