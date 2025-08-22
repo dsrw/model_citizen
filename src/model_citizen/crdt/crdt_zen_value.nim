@@ -60,7 +60,7 @@ proc valid*[T](self: CrdtZenValue[T]): bool =
   not self.is_nil and not self.destroyed and ?self.ctx
 
 # Core value operations with dual-mode support
-proc `value=`*[T](self: CrdtZenValue[T], new_value: T, op_ctx = OperationContext()) =
+proc set_crdt_value*[T](self: CrdtZenValue[T], new_value: T, op_ctx = OperationContext()) =
   privileged_crdt
   assert self.valid
   self.ctx.setup_op_ctx
