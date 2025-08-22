@@ -108,7 +108,7 @@ type
     id*: string
     changed_callback_zid: ZID
     last_id: int
-    close_procs: Table[ZID, proc() {.gcsafe.}]
+    close_procs: Table[ZID, proc() {.gcsafe.}] {.no_flatty.}
     objects*: OrderedTable[string, ref ZenBase]
     objects_need_packing*: bool
     ref_pool: Table[string, CountedRef]
@@ -156,7 +156,7 @@ type
   ChangeCallback[O] = proc(changes: seq[Change[O]]) {.gcsafe.}
 
   ZenObject[T, O] = object of ZenBase
-    changed_callbacks: OrderedTable[ZID, ChangeCallback[O]]
+    changed_callbacks: OrderedTable[ZID, ChangeCallback[O]] {.no_flatty.}
     tracked: T
     sync_mode*: SyncMode      ## CRDT sync mode (None for regular Zen objects)
 

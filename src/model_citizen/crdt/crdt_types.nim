@@ -46,8 +46,8 @@ type
     vector_clock*: VectorClock
     pending_corrections*: seq[T]
     last_sync_time*: MonoTime
-    sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}]
-    change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]
+    sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}] {.no_flatty.}
+    change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}] {.no_flatty.}
     
   CrdtZenSeq*[T] = ref object of ZenObject[seq[T], T]
     ## CRDT-enabled ZenSeq with dual-mode operation
@@ -65,8 +65,8 @@ type
     vector_clock*: VectorClock
     pending_corrections*: seq[seq[T]]
     last_sync_time*: MonoTime
-    sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}]
-    change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]
+    sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}] {.no_flatty.}
+    change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}] {.no_flatty.}
 
 # Vector clock operations
 proc init*(_: type VectorClock, local_id: string): VectorClock =
@@ -120,8 +120,8 @@ type
     vector_clock*: VectorClock
     pending_corrections*: seq[HashSet[T]]
     last_sync_time*: MonoTime
-    sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}]
-    change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]
+    sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}] {.no_flatty.}
+    change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}] {.no_flatty.}
 
 # Type aliases for common CRDT types
 type
