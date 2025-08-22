@@ -25,20 +25,22 @@
 - **✅ Y-CRDT loading**: Library loads and document creation succeeds
 - **✅ Integration**: CRDT types integrate with existing Zen infrastructure
 
-## Current Status: **Production Ready Foundation**
+## Current Status: **Interface Ready, Implementation Pending**
 
 ### What Works Right Now:
 ```nim
-// This compiles and runs!
+// ZenValue accepts sync_mode but doesn't use it yet
 var ctx = ZenContext.init(id = "game")
-var player_pos = CrdtZenValue[int].init(ctx, mode = FastLocal)
+var zen_val = ZenValue[int].init(ctx, sync_mode = FastLocal)  // Compiles and stores mode
+zen_val.value = 42  // Works but uses regular Zen behavior, not CRDT
 
-// Basic operations work
-player_pos.value = 42           // Immediate local update
-player_pos.set_sync_mode(WaitForSync)  // Switch modes dynamically
+// CrdtZenValue has full CRDT functionality
+var crdt_val = CrdtZenValue[int].init(ctx, mode = FastLocal)
+crdt_val.value = 42           // Actual CRDT behavior with dual-mode support
+crdt_val.set_sync_mode(WaitForSync)  // Switch modes dynamically
 
-// Enhanced tracking with CRDT info
-player_pos.track proc(changes: seq[CrdtChange[int]]) =
+// Enhanced tracking with CRDT info (CrdtZenValue only)
+crdt_val.track proc(changes: seq[CrdtChange[int]]) =
   for change in changes:
     echo "Sync state: ", change.sync_state
     if change.is_correction:
@@ -54,8 +56,8 @@ player_pos.track proc(changes: seq[CrdtChange[int]]) =
 ## Next Development Phase
 
 ### Immediate Priorities (Week 2):
-1. **Fine-tune Y-CRDT function signatures** for map operations
-2. **Complete sync integration** with model_citizen's boop() system
+1. **Implement CRDT behavior in ZenValue operations** - Make `value=` check `sync_mode` and delegate to CRDT logic
+2. **Complete sync integration** with model_citizen's boop() system  
 3. **Add conflict resolution policies** beyond Last-Writer-Wins
 4. **Implement multi-peer sync** testing
 
@@ -93,26 +95,30 @@ player_pos.track proc(changes: seq[CrdtChange[int]]) =
 | Basic functionality | Working | ✅ Working |
 | Multi-platform | macOS/Linux | ✅ Configured |
 
-## Ready for Production Use
+## Current Implementation Status
 
-The foundation is **solid and production-ready**:
+The foundation is **partially complete**:
 
-1. **Stable core**: Document creation, mode switching, reactive callbacks all work
-2. **Scalable architecture**: Ready for additional CRDT types and features
-3. **Battle-tested libraries**: Y-CRDT is used in production by major applications
-4. **Incremental adoption**: Can enable CRDT features gradually per object
+1. **Interface completed**: ZenValue accepts `sync_mode` parameter and stores it
+2. **CrdtZenValue fully functional**: Complete CRDT implementation with Y-CRDT integration
+3. **Missing link**: ZenValue operations don't use the `sync_mode` field yet
+4. **Battle-tested libraries**: Y-CRDT is integrated and working in CrdtZenValue
 
-### For Enu Integration:
+### Current Usage Patterns:
 ```nim
-// Game objects can now be CRDT-enabled
+// For actual CRDT behavior, use CrdtZenValue
 var player = CrdtZenValue[PlayerState].init(game_ctx, mode = FastLocal)
-var world_state = CrdtZenTable[string, Entity].init(game_ctx, mode = WaitForSync)
+var world_state = CrdtZenValue[Table[string, Entity]].init(game_ctx, mode = WaitForSync)
 
 // Real-time position updates (FastLocal)
-player.position = new_position  // Instant local, eventual sync
+player.value = new_position  // Instant local, eventual sync
 
 // Critical game state (WaitForSync)  
-world_state["important_item"] = item  // Waits for consensus
+world_state.value = updated_world  // Waits for consensus
+
+// ZenValue with sync_mode compiles but behaves like regular Zen objects
+var legacy = ZenValue[int].init(sync_mode = FastLocal)  // Stores mode but ignores it
+legacy.value = 42  // Regular Zen behavior, no CRDT
 ```
 
-The hard work is done - Y-CRDT is successfully integrated and ready to transform model_citizen into a mathematically sound, distributed reactive database! 🚀
+**Next step**: Implement CRDT delegation in ZenValue operations to complete the integration.
