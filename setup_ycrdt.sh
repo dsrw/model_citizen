@@ -45,9 +45,22 @@ cargo build --release
 
 # Copy the built library to our lib directory
 echo "📋 Copying library to model_citizen/lib..."
+
+# List available files to debug
+echo "📋 Available files in target/release:"
+ls -la target/release/lib* || true
+
 if [ "$PLATFORM" = "Darwin" ]; then
     LIB_NAME="libyrs.dylib"
-    cp target/release/$LIB_NAME ../../lib/
+    # Try different possible filenames
+    if [ -f "target/release/$LIB_NAME" ]; then
+        cp target/release/$LIB_NAME ../../lib/
+    elif [ -f "target/release/libyffi.dylib" ]; then
+        cp target/release/libyffi.dylib ../../lib/$LIB_NAME
+    else
+        echo "❌ Could not find Darwin library file"
+        exit 1
+    fi
     
     # Update the library ID for proper loading
     install_name_tool -id "@rpath/$LIB_NAME" ../../lib/$LIB_NAME
@@ -55,7 +68,15 @@ if [ "$PLATFORM" = "Darwin" ]; then
     echo "✅ $LIB_NAME installed to lib/"
 elif [ "$PLATFORM" = "Linux" ]; then
     LIB_NAME="libyrs.so"
-    cp target/release/$LIB_NAME ../../lib/
+    # Try different possible filenames
+    if [ -f "target/release/$LIB_NAME" ]; then
+        cp target/release/$LIB_NAME ../../lib/
+    elif [ -f "target/release/libyffi.so" ]; then
+        cp target/release/libyffi.so ../../lib/$LIB_NAME
+    else
+        echo "❌ Could not find Linux library file"
+        exit 1
+    fi
     echo "✅ $LIB_NAME installed to lib/"
 else
     echo "❌ Unsupported platform: $PLATFORM"
