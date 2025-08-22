@@ -48,6 +48,25 @@ type
     last_sync_time*: MonoTime
     sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}]
     change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]
+    
+  CrdtZenSeq*[T] = ref object of ZenObject[seq[T], T]
+    ## CRDT-enabled ZenSeq with dual-mode operation
+    local_seq*: seq[T]            ## Immediate local state (FastLocal mode)
+    crdt_seq*: seq[T]            ## CRDT-synchronized state  
+    mode*: CrdtMode
+    sync_state*: SyncState
+    
+    # Y-CRDT integration
+    y_doc*: ptr YDoc_typedef     ## Y-CRDT document
+    y_array*: ptr Branch         ## Y-CRDT array for this sequence
+    field_key*: string          ## Key used in Y-CRDT document
+    
+    # Synchronization tracking
+    vector_clock*: VectorClock
+    pending_corrections*: seq[seq[T]]
+    last_sync_time*: MonoTime
+    sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}]
+    change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]
 
 # Vector clock operations
 proc init*(_: type VectorClock, local_id: string): VectorClock =
@@ -86,7 +105,7 @@ proc is_concurrent_with*(self: VectorClock, other: VectorClock): bool =
 # Type aliases for common CRDT types
 type
   CrdtZenTable*[K, V] = CrdtZenValue[Table[K, V]]
-  CrdtZenSeq*[T] = CrdtZenValue[seq[T]]
+  # CrdtZenSeq has its own full implementation in crdt_zen_seq.nim
   CrdtZenSet*[T] = CrdtZenValue[HashSet[T]]
 
 # Conflict resolution policies

@@ -2,6 +2,80 @@ import std/[typetraits, macros, macrocache, tables]
 import model_citizen/[core, components/private/tracking, types {.all.}]
 import ./[contexts, validations, private]
 
+# Import CRDT support - this should work on the zen-crdt branch
+import model_citizen/crdt/[crdt_types, crdt_zen_value]
+
+# CRDT instance management for ZenValue types
+var crdt_instances {.threadvar.}: Table[string, ref RootObj]
+
+proc get_or_create_crdt_instance*[T](self: ZenValue[T]): CrdtZenValue[T] =
+  ## Get existing CRDT instance or create new one for this ZenValue
+  privileged
+  private_access ZenObject[T, T]
+  
+  # Use ZenValue's ID as the key for CRDT instance lookup
+  let key = self.id
+  
+  if key in crdt_instances:
+    result = CrdtZenValue[T](crdt_instances[key])
+  else:
+    # Convert sync_mode to CrdtMode
+    let crdt_mode = case self.sync_mode:
+      of SyncMode.FastLocal: CrdtMode.FastLocal
+      of SyncMode.WaitForSync: CrdtMode.WaitForSync  
+      of SyncMode.Yolo: 
+        # This shouldn't happen since we check != Yolo, but default to FastLocal for safety
+        CrdtMode.FastLocal
+    
+    # Create new CRDT instance with same ID and current value
+    result = CrdtZenValue[T].init(
+      ctx = self.ctx,
+      id = key, 
+      mode = crdt_mode
+    )
+    
+    # Initialize with current ZenValue's tracked value
+    when compiles(self.tracked):
+      result.local_value = self.tracked
+      result.crdt_value = self.tracked
+    
+    # Store for future use
+    crdt_instances[key] = result
+
+proc get_or_create_crdt_seq_instance*[T](self: ZenSeq[T]): CrdtZenSeq[T] =
+  ## Get existing CRDT instance or create new one for this ZenSeq
+  privileged
+  private_access ZenObject[seq[T], T]
+  
+  # Use ZenSeq's ID as the key for CRDT instance lookup
+  let key = self.id
+  
+  if key in crdt_instances:
+    result = CrdtZenSeq[T](crdt_instances[key])
+  else:
+    # Convert sync_mode to CrdtMode
+    let crdt_mode = case self.sync_mode:
+      of SyncMode.FastLocal: CrdtMode.FastLocal
+      of SyncMode.WaitForSync: CrdtMode.WaitForSync  
+      of SyncMode.Yolo: 
+        # This shouldn't happen since we check != Yolo, but default to FastLocal for safety
+        CrdtMode.FastLocal
+    
+    # Create new CRDT instance with same ID and current sequence
+    result = CrdtZenSeq[T].init(
+      ctx = self.ctx,
+      id = key, 
+      mode = crdt_mode
+    )
+    
+    # Initialize with current ZenSeq's tracked value
+    when compiles(self.tracked):
+      result.local_seq = self.tracked
+      result.crdt_seq = self.tracked
+    
+    # Store for future use
+    crdt_instances[key] = result
+
 proc untrack_all*[T, O](self: Zen[T, O]) =
   private_access ZenObject[T, O]
   private_access ZenBase
@@ -53,6 +127,16 @@ proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
   privileged
   assert self.valid
   self.ctx.setup_op_ctx
+  
+  # Check if this is a ZenValue with CRDT sync_mode enabled
+  when T is T and O is T:  # This is a ZenValue[T]
+    if self.sync_mode != SyncMode.Yolo:
+      # Delegate to CRDT implementation
+      let crdt_instance = self.get_or_create_crdt_instance()
+      crdt_instance.value = value
+      return
+  
+  # Regular Zen behavior for non-CRDT or sync_mode = Yolo
   if self.tracked != value:
     mutate(op_ctx):
       self.tracked = value
@@ -69,6 +153,15 @@ proc `value=`*[T](self: Zen[HashSet[T], T], value: set[T], op_ctx = OperationCon
 proc value*[T, O](self: Zen[T, O]): T =
   privileged
   assert self.valid
+  
+  # Check if this is a ZenValue with CRDT sync_mode enabled
+  when T is T and O is T:  # This is a ZenValue[T]
+    if self.sync_mode != SyncMode.Yolo:
+      # Delegate to CRDT implementation
+      let crdt_instance = self.get_or_create_crdt_instance()
+      return crdt_instance.value
+  
+  # Regular Zen behavior for non-CRDT or sync_mode = Yolo
   self.tracked
 
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
@@ -79,6 +172,14 @@ proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
 proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
   privileged
   assert self.valid
+  
+  # Check if this ZenSeq has CRDT sync_mode enabled
+  if self.sync_mode != SyncMode.Yolo:
+    # Delegate to CRDT implementation
+    let crdt_instance = self.get_or_create_crdt_seq_instance()
+    return crdt_instance[index]
+  
+  # Regular Zen behavior for sync_mode = Yolo
   self.tracked[index]
 
 proc `[]=`*[K, V](
@@ -92,6 +193,15 @@ proc `[]=`*[T](
 ) =
   self.ctx.setup_op_ctx
   assert self.valid
+  
+  # Check if this ZenSeq has CRDT sync_mode enabled
+  if self.sync_mode != SyncMode.Yolo:
+    # Delegate to CRDT implementation
+    let crdt_instance = self.get_or_create_crdt_seq_instance()
+    crdt_instance[index] = value
+    return
+  
+  # Regular Zen behavior for sync_mode = Yolo
   mutate(op_ctx):
     self.tracked[index] = value
 
@@ -102,6 +212,16 @@ proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
     assert self.valid(value)
   else:
     assert self.valid
+  
+  # Check if this is a ZenSeq with CRDT sync_mode enabled
+  when T is seq[O] and O is O:  # This is a ZenSeq[O]
+    if self.sync_mode != SyncMode.Yolo:
+      # Delegate to CRDT implementation
+      let crdt_instance = self.get_or_create_crdt_seq_instance()
+      crdt_instance.add(value)
+      return
+  
+  # Regular Zen behavior for non-CRDT or sync_mode = Yolo
   self.tracked.add value
   let added = @[Change.init(value, {Added})]
   self.link_or_unlink(added, true)

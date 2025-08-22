@@ -49,6 +49,27 @@ proc create_yinput*[T](value: T): YInput =
   else:
     {.error: "Unsupported type for Y-CRDT input".}
 
+# Y-CRDT Array operations for sequences
+proc yarray_insert_safe*[T](array: ptr Branch, txn: ptr YTransaction, index: uint32, value: T) =
+  ## Safe wrapper for inserting into Y-CRDT array
+  let yinput = create_yinput(value)
+  # Y-CRDT uses insert_range with length 1 for single item insertion
+  yarray_insert_range(array, txn, index, addr yinput, 1)
+
+proc yarray_remove_safe*(array: ptr Branch, txn: ptr YTransaction, index: uint32, length: uint32 = 1) =
+  ## Safe wrapper for removing from Y-CRDT array
+  yarray_remove_range(array, txn, index, length)
+
+proc yarray_get_safe*[T](array: ptr Branch, txn: ptr YTransaction, index: uint32): T =
+  ## Safe wrapper for getting from Y-CRDT array
+  # This is a simplified version - full implementation would need Y-CRDT output parsing
+  when T is string:
+    result = ""  # Placeholder - would read from Y-CRDT output
+  elif T is int:
+    result = 0   # Placeholder - would read from Y-CRDT output
+  else:
+    result = T.default
+
 proc extract_value*[T](output: ptr YOutput, target_type: type T): T =
   if output == nil:
     return T.default

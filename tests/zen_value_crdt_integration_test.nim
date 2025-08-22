@@ -15,7 +15,7 @@ proc run*() =
       var fast_local = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx, id = "fast")  
       var wait_sync = ZenValue[int].init(sync_mode = WaitForSync, ctx = ctx, id = "wait")
       
-      check regular.sync_mode == SyncMode.None
+      check regular.sync_mode == SyncMode.FastLocal
       check fast_local.sync_mode == FastLocal
       check wait_sync.sync_mode == WaitForSync
     
@@ -37,9 +37,9 @@ proc run*() =
       var zen_int = ZenValue[int].init(ctx = ctx)
       var zen_str = ZenValue[string].init(ctx = ctx)
       
-      # Default sync_mode should be None
-      check zen_int.sync_mode == SyncMode.None
-      check zen_str.sync_mode == SyncMode.None
+      # Default sync_mode should be FastLocal
+      check zen_int.sync_mode == SyncMode.FastLocal
+      check zen_str.sync_mode == SyncMode.FastLocal
       
       # Basic operations
       zen_int.value = 42
@@ -48,14 +48,23 @@ proc run*() =
       check zen_int.value == 42
       check zen_str.value == "test"
     
-    test "FastLocal is available as default CRDT mode":
-      # Test user's requirement: FastLocal should be available as default
-      var crdt_zen = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx)
+    test "FastLocal is now the default mode":
+      # Test that FastLocal is now the default
+      var crdt_zen = ZenValue[int].init(ctx = ctx)
       check crdt_zen.sync_mode == FastLocal
       
       # Should work with basic operations
       crdt_zen.value = 100
       check crdt_zen.value == 100
+    
+    test "Yolo mode uses traditional Zen sync":
+      # Test that Yolo mode still works for traditional sync
+      var yolo_zen = ZenValue[string].init(sync_mode = Yolo, ctx = ctx)
+      check yolo_zen.sync_mode == Yolo
+      
+      # Should work with basic operations and use traditional Zen sync
+      yolo_zen.value = "yolo"
+      check yolo_zen.value == "yolo"
 
 when is_main_module:
   Zen.bootstrap

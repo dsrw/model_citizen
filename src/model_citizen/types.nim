@@ -11,8 +11,8 @@ type
     SyncAllNoOverwrite
 
   SyncMode* = enum
-    None          ## Traditional Zen object without CRDT
-    FastLocal     ## Apply changes immediately locally, sync in background
+    Yolo          ## Traditional Zen sync without CRDT (fast but no conflict resolution)
+    FastLocal     ## Apply changes immediately locally, sync in background via CRDT
     WaitForSync   ## Wait for CRDT convergence before applying changes
 
   ChangeKind* = enum
