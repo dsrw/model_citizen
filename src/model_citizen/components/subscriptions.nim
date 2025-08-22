@@ -10,6 +10,7 @@ import
 import model_citizen/components/[private/global_state]
 
 import ./type_registry
+# import model_citizen/crdt/sync_protocol  # Temporarily disabled to avoid circular dependencies
 
 var flatty_ctx {.threadvar.}: ZenContext
 
@@ -254,6 +255,11 @@ proc add_subscriber*(
   self.pack_objects
   debug "adding subscriber", sub
   self.subscribers.add sub
+  
+  # Initialize CRDT sync for new subscriber (temporarily disabled)
+  # let manager = get_crdt_sync_manager(self)
+  # on_context_subscribed(manager, sub.ctx_id)
+  
   for id in self.objects.keys.to_seq.reversed:
     if id notin remote_objects or push_all:
       debug "sending object on subscribe",
@@ -266,6 +272,10 @@ proc add_subscriber*(
         from_ctx = self.id, to_ctx = sub.ctx_id, zen_id = id
 
 proc unsubscribe*(self: ZenContext, sub: Subscription) =
+  # Clean up CRDT sync for unsubscribing context (temporarily disabled)
+  # let manager = get_crdt_sync_manager(self)
+  # on_context_unsubscribed(manager, sub.ctx_id)
+  
   if sub.kind == Remote:
     self.reactor.disconnect(sub.connection)
   else:
@@ -412,6 +422,12 @@ proc process_message(self: ZenContext, msg: Message) =
         OperationContext.init(source = msg, ctx = self),
       )
       # :(
+  elif msg.kind == CrdtSync:
+    # Handle CRDT synchronization message (temporarily disabled)
+    # let manager = get_crdt_sync_manager(self)
+    # let crdt_msg = msg.obj.from_flatty(CrdtSyncMessage)
+    # handle_crdt_sync_message(manager, msg.source, crdt_msg)
+    discard
   elif msg.kind != Blank:
     if msg.object_id notin self:
       # :( this should throw an error

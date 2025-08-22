@@ -5,7 +5,8 @@
 ## infrastructure to support CRDT-specific synchronization.
 
 import std/[tables, sets, json, base64, times, strformat]
-import model_citizen/[core, types, components/subscriptions]
+import pkg/flatty
+import model_citizen/[core, types]
 import ./[crdt_types, document_coordinator, ycrdt_futhark]
 
 type
@@ -154,7 +155,7 @@ proc sync_document_with_peer*(manager: CrdtSyncManager,
 
 proc handle_crdt_sync_message*(manager: CrdtSyncManager,
                               sender_ctx_id: string,
-                              message: CrdtSyncMessage) =
+                              message: CrdtSyncMessage) {.gcsafe.} =
   ## Handle incoming CRDT synchronization message
   case message.kind:
   of DocumentSync:
@@ -262,9 +263,13 @@ proc get_document_sync_status*(ctx: ZenContext, doc_id: DocumentId): string =
     result = &"Document {doc_id}: not found"
 
 # Implementation of forward-declared procedures
-proc send_crdt_message*(ctx: ZenContext, target_ctx_id: string, message: CrdtSyncMessage) =
+proc send_crdt_message*(ctx: ZenContext, target_ctx_id: string, message: CrdtSyncMessage) {.gcsafe.} =
   ## Send CRDT message through existing subscription system
-  # This is a placeholder - needs integration with the actual messaging system
-  # In the full implementation, this would serialize the message and send it
-  # through the existing ZenContext subscription channels
+  # This is a stub for now - the actual implementation will be connected
+  # by the subscriptions system to avoid circular dependencies
+  
+  # The message would be serialized and sent like this:
+  # let msg = Message(kind: CrdtSync, obj: message.to_flatty(), source: ctx.id)
+  # ctx.send(target_subscription, msg)
+  
   discard

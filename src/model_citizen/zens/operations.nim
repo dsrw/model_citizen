@@ -120,7 +120,9 @@ proc untrack_all*[T, O](self: Zen[T, O]) =
     self.ctx.close_procs.del(zid)
 
   for zid in self.bound_zids:
-    self.ctx.untrack(zid)
+    if zid in self.ctx.close_procs:
+      self.ctx.close_procs[zid]()
+      self.ctx.close_procs.del(zid)
 
   self.changed_callbacks.clear
 
@@ -168,6 +170,9 @@ proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
       # Delegate to CRDT implementation
       let crdt_instance = self.get_or_create_crdt_instance()
       crdt_instance.value = value
+      
+      # Note: Sync notifications are handled inside the CRDT value setter
+      # to avoid circular dependencies
       return
   
   # Regular Zen behavior for non-CRDT or sync_mode = Yolo

@@ -89,11 +89,13 @@ proc `value=`*[T](self: CrdtZenValue[T], new_value: T, op_ctx = OperationContext
     
     # Start background sync to CRDT
     self.sync_to_crdt_async(new_value)
+    self.notify_sync_peers()
     
   of WaitForSync:
     # Wait for CRDT consensus before triggering callbacks
     self.sync_state = Syncing
     self.sync_to_crdt_blocking(new_value)
+    self.notify_sync_peers()
 
 proc value*[T](self: CrdtZenValue[T]): T =
   privileged_crdt
@@ -104,6 +106,18 @@ proc value*[T](self: CrdtZenValue[T]): T =
     self.local_value    # Always return immediate local state
   of WaitForSync: 
     self.crdt_value     # Always return consensus state
+
+proc notify_sync_peers*[T](self: CrdtZenValue[T]) =
+  ## Notify sync manager and peers of document changes
+  ## This uses dynamic dispatch to avoid circular dependencies
+  privileged_crdt
+  
+  # Use proc ptr to avoid import cycles
+  type SyncNotifier = proc(ctx: ZenContext, type_name, object_id: string) {.nimcall, gcsafe.}
+  
+  # For now, just stub this out - sync notifications will be enabled
+  # when the full sync protocol is integrated
+  discard
 
 # Sync mode management
 proc set_sync_mode*[T](self: CrdtZenValue[T], mode: CrdtMode) =

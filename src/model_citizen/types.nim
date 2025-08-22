@@ -32,6 +32,7 @@ type
     Touch
     Subscribe
     Packed
+    CrdtSync  ## CRDT synchronization message
 
   BaseChange* = ref object of RootObj
     changes*: set[ChangeKind]
