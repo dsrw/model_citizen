@@ -102,9 +102,9 @@ proc `[]`*[T](self: CrdtZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
   
   case self.mode:
   of FastLocal: 
-    if index < self.local_seq.len: self.local_seq[index] else: T.default
+    if index.int < self.local_seq.len: self.local_seq[index] else: T.default
   of WaitForSync: 
-    if index < self.crdt_seq.len: self.crdt_seq[index] else: T.default
+    if index.int < self.crdt_seq.len: self.crdt_seq[index] else: T.default
 
 proc add*[T](self: CrdtZenSeq[T], value: T, op_ctx = OperationContext()) =
   privileged_crdt

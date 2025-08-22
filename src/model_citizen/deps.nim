@@ -11,7 +11,7 @@ export netty except Message
 
 proc to_flatty*[T](s: HashSet[T]): string =
   result.add_int64(s.card.int64)
-  for item in s:
+  for item in s.items:
     result.to_flatty(item)
 
 proc from_flatty*[T](s: var HashSet[T], data: string) =

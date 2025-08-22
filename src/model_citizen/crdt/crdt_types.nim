@@ -102,11 +102,31 @@ proc is_concurrent_with*(self: VectorClock, other: VectorClock): bool =
   ## Events are concurrent only if they have exactly the same total count AND same peer
   self.total_events() == other.total_events() and self.local_id == other.local_id
 
+# CRDT types
+type
+  CrdtZenSet*[T] = ref object of ZenObject[HashSet[T], T]
+    ## CRDT-enabled ZenSet with dual-mode operation
+    local_set*: HashSet[T]           ## Immediate local state (FastLocal mode)
+    crdt_set*: HashSet[T]           ## CRDT-synchronized state  
+    mode*: CrdtMode
+    sync_state*: SyncState
+    
+    # Y-CRDT integration
+    y_doc*: ptr YDoc_typedef        ## Y-CRDT document
+    y_map*: ptr Branch              ## Y-CRDT map for set operations
+    field_key*: string             ## Key used in Y-CRDT document
+    
+    # Synchronization tracking
+    vector_clock*: VectorClock
+    pending_corrections*: seq[HashSet[T]]
+    last_sync_time*: MonoTime
+    sync_callbacks*: Table[ZID, proc(state: SyncState) {.gcsafe.}]
+    change_callbacks*: Table[ZID, proc(changes: seq[CrdtChange[T]]) {.gcsafe.}]
+
 # Type aliases for common CRDT types
 type
   CrdtZenTable*[K, V] = CrdtZenValue[Table[K, V]]
-  # CrdtZenSeq has its own full implementation in crdt_zen_seq.nim
-  CrdtZenSet*[T] = CrdtZenValue[HashSet[T]]
+  # CrdtZenSeq and CrdtZenSet have their own full implementations
 
 # Conflict resolution policies
 type
