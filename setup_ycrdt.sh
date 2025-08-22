@@ -48,7 +48,9 @@ echo "📋 Copying library to model_citizen/lib..."
 
 # List available files to debug
 echo "📋 Available files in target/release:"
-ls -la target/release/lib* || true
+ls -la target/release/ || true
+echo "📋 Looking for any shared library files:"
+find target/release -name "*.so" -o -name "*.dylib" -o -name "*.dll" 2>/dev/null || true
 
 if [ "$PLATFORM" = "Darwin" ]; then
     LIB_NAME="libyrs.dylib"
