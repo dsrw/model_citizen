@@ -2,6 +2,7 @@ import std/[net, importutils, tables, sets, sequtils, algorithm, intsets, math]
 
 import pkg/threading/channels {.all.}
 import pkg/[flatty, supersnappy]
+import flatty/binny
 
 import
   model_citizen/[core, types {.all.}],
@@ -624,3 +625,83 @@ proc close*(self: ZenContext) =
     private_access Reactor
     self.reactor.socket.close()
   self.reactor = nil
+
+# Custom flatty serialization for callback tables - exclude from serialization
+proc to_flatty*(s: var string, x: Table[ZID, proc() {.gcsafe.}]) =
+  # Don't serialize callback tables
+  discard
+
+proc from_flatty*(s: string, i: var int, x: var Table[ZID, proc() {.gcsafe.}]) =
+  # Don't deserialize callback tables - they'll be empty
+  x = init_table[ZID, proc() {.gcsafe.}]()
+
+proc to_flatty*[O](s: var string, x: OrderedTable[ZID, proc(changes: seq[O]) {.gcsafe.}]) =
+  # Don't serialize callback tables
+  discard
+
+proc from_flatty*[O](s: string, i: var int, x: var OrderedTable[ZID, proc(changes: seq[O]) {.gcsafe.}]) =
+  # Don't deserialize callback tables - they'll be empty
+  x = init_ordered_table[ZID, proc(changes: seq[O]) {.gcsafe.}]()
+
+# Custom flatty serialization for objects table
+proc to_flatty*(s: var string, x: OrderedTable[string, ref ZenBase]) =
+  # Use default table serialization - the ref ZenBase custom serialization will handle individual objects
+  s.add_int64(x.len.int64)
+  for key, value in x:
+    s.to_flatty(key)
+    s.to_flatty(value)
+
+proc from_flatty*(s: string, i: var int, x: var OrderedTable[string, ref ZenBase]) =
+  let length = s.read_int64(i)
+  x = init_ordered_table[string, ref ZenBase]()
+  for _ in 0 ..< length:
+    var key: string
+    var value: ref ZenBase
+    s.from_flatty(i, key)
+    s.from_flatty(i, value)
+    if ?value:  # Only add non-nil values
+      x[key] = value
+
+# Custom flatty serialization for CountedRef
+proc to_flatty*(s: var string, x: CountedRef) =
+  s.to_flatty(x.obj)
+  s.to_flatty(x.references)
+
+proc from_flatty*(s: string, i: var int, x: var CountedRef) =
+  s.from_flatty(i, x.obj)
+  s.from_flatty(i, x.references)
+
+# Custom flatty serialization for ref_pool table
+proc to_flatty*(s: var string, x: Table[string, CountedRef]) =
+  s.add_int64(x.len.int64)
+  for key, value in x:
+    s.to_flatty(key)
+    s.to_flatty(value)
+
+proc from_flatty*(s: string, i: var int, x: var Table[string, CountedRef]) =
+  let length = s.read_int64(i)
+  x = init_table[string, CountedRef]()
+  for _ in 0 ..< length:
+    var key: string
+    var value: CountedRef
+    s.from_flatty(i, key)
+    s.from_flatty(i, value)
+    x[key] = value
+
+# Custom flatty serialization for MonoTime tables - skip serialization
+proc to_flatty*(s: var string, x: Table[string, MonoTime]) =
+  # Don't serialize timing tables - they're just for cleanup tracking
+  discard
+
+proc from_flatty*(s: string, i: var int, x: var Table[string, MonoTime]) =
+  # Don't deserialize timing tables - they'll be empty
+  x = init_table[string, MonoTime]()
+
+# Custom flatty serialization for procedure sequences - skip serialization
+proc to_flatty*(s: var string, x: seq[proc() {.gcsafe.}]) =
+  # Don't serialize procedure sequences
+  discard
+
+proc from_flatty*(s: string, i: var int, x: var seq[proc() {.gcsafe.}]) =
+  # Don't deserialize procedure sequences - they'll be empty
+  x = @[]

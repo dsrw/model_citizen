@@ -11,9 +11,9 @@ type
     SyncAllNoOverwrite
 
   SyncMode* = enum
-    Yolo          ## Traditional Zen sync without CRDT (fast but no conflict resolution)
-    FastLocal     ## Apply changes immediately locally, sync in background via CRDT
-    WaitForSync   ## Wait for CRDT convergence before applying changes
+    Yolo ## Traditional Zen sync without CRDT (fast but no conflict resolution)
+    FastLocal ## Apply changes immediately locally, sync in background via CRDT
+    WaitForSync ## Wait for CRDT convergence before applying changes
 
   ChangeKind* = enum
     Created
@@ -32,7 +32,7 @@ type
     Touch
     Subscribe
     Packed
-    CrdtSync  ## CRDT synchronization message
+    CrdtSync ## CRDT synchronization message
 
   BaseChange* = ref object of RootObj
     changes*: set[ChangeKind]
@@ -104,11 +104,11 @@ type
     else:
       discard
 
-  ZenContext* = ref object
+  ZenContext* = ref object of RootObj
     id*: string
     changed_callback_zid: ZID
     last_id: int
-    close_procs: Table[ZID, proc() {.gcsafe.}] {.no_flatty.}
+    close_procs: Table[ZID, proc() {.gcsafe.}]
     objects*: OrderedTable[string, ref ZenBase]
     objects_need_packing*: bool
     ref_pool: Table[string, CountedRef]
@@ -156,9 +156,9 @@ type
   ChangeCallback[O] = proc(changes: seq[Change[O]]) {.gcsafe.}
 
   ZenObject[T, O] = object of ZenBase
-    changed_callbacks: OrderedTable[ZID, ChangeCallback[O]] {.no_flatty.}
+    changed_callbacks: OrderedTable[ZID, ChangeCallback[O]]
     tracked: T
-    sync_mode*: SyncMode      ## CRDT sync mode (None for regular Zen objects)
+    sync_mode*: SyncMode ## CRDT sync mode (None for regular Zen objects)
 
   Zen*[T, O] = ref object of ZenObject[T, O]
 
