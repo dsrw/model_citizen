@@ -106,9 +106,19 @@ fi
 
 cd ..
 
-# Copy header file
+# Copy header file  
 echo "📋 Copying header file..."
-cp y-crdt/yffi/include/libyrs.h lib/
+echo "📋 Current directory: $(pwd)"
+echo "📋 Looking for header file:"
+find . -name "libyrs.h" 2>/dev/null || echo "Header file not found"
+ls -la yffi/include/ || echo "Include directory not found"
+
+if [ -f "yffi/include/libyrs.h" ]; then
+    cp yffi/include/libyrs.h ../lib/
+    echo "✅ Header file copied"
+else
+    echo "⚠️  Header file not found, may need to be generated"
+fi
 
 # Test the library
 echo "🧪 Testing Y-CRDT library..."
