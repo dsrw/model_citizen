@@ -41,7 +41,23 @@ cd y-crdt
 # Build the C FFI library
 echo "🔨 Building Y-CRDT C FFI library..."
 cd yffi
-cargo build --release
+
+# Check current directory
+echo "📋 Current directory: $(pwd)"
+echo "📋 Contents of current directory:"
+ls -la
+
+# Build and capture output
+echo "🔨 Starting cargo build..."
+cargo build --release --verbose
+
+# Check what was actually built
+echo "📋 Contents after build:"
+ls -la
+echo "📋 Checking target directory:"
+find . -name "target" -type d 2>/dev/null || echo "No target directory found"
+echo "📋 Looking for any built files:"
+find . -name "*.so" -o -name "*.dylib" -o -name "*.a" 2>/dev/null || echo "No library files found"
 
 # Copy the built library to our lib directory
 echo "📋 Copying library to model_citizen/lib..."
