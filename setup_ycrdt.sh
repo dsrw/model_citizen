@@ -41,7 +41,7 @@ cd y-crdt
 # Build the C FFI library
 echo "🔨 Building Y-CRDT C FFI library..."
 cd yffi
-cargo build --release --features c
+cargo build --release
 
 # Copy the built library to our lib directory
 echo "📋 Copying library to model_citizen/lib..."
