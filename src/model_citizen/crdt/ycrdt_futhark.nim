@@ -25,8 +25,14 @@ when defined(generate_ycrdt_binding):
     outputPath output_path
     "libyrs.h"
 else:
+  import std/os
   import generated/ycrdt_binding
   export ycrdt_binding
+  
+  # Link the Y-CRDT dynamic library
+  const lib_path = current_source_path.parent_dir / ".." / ".." / ".." / "lib"
+  {.passL: "-L" & lib_path.}
+  {.passL: "-lyrs".}
 
 # Helper procedures for easier Y-CRDT usage
 proc ydoc_write_transaction_simple*(doc: ptr YDoc_typedef): ptr YTransaction =

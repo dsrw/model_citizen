@@ -525,7 +525,13 @@ proc `~==~`*[T, O](a: Zen[T, O], b: Zen[T, O]): bool =
 proc `?~`*[T](self: ZenValue[T]): bool =
   ? ~self
 
-iterator items*[T](self: ZenSet[T] | ZenSeq[T]): T =
+iterator items*[T](self: Zen[HashSet[T], T]): T =
+  privileged
+  assert self.valid
+  for item in sets.items(self.tracked):
+    yield item
+
+iterator items*[T](self: ZenSeq[T]): T =
   privileged
   assert self.valid
   for item in self.tracked.items:
