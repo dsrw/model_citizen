@@ -50,7 +50,7 @@ type
 var context_sync_managers {.threadvar.}: Table[string, CrdtSyncManager]
 
 # Forward declarations
-proc send_crdt_message*(ctx: ZenContext, target_ctx_id: string, message: CrdtSyncMessage)
+proc send_crdt_message*(ctx: ZenContext, target_ctx_id: string, message: CrdtSyncMessage) {.gcsafe.}
 
 proc init_crdt_sync_manager*(ctx: ZenContext): CrdtSyncManager =
   ## Initialize CRDT sync manager for a context

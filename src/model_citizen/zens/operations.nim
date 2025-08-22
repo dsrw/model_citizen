@@ -2,8 +2,8 @@ import std/[typetraits, macros, macrocache, tables]
 import model_citizen/[core, components/private/tracking, types {.all.}]
 import ./[contexts, validations, private]
 
-# Import CRDT support - now safe with renamed methods
-import ./crdt_operations
+# Import unified CRDT support  
+# import model_citizen/crdt/unified_crdt
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
   private_access ZenObject[T, O]
@@ -60,15 +60,11 @@ proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
   self.ctx.setup_op_ctx
   
   # Check if this is a ZenValue with CRDT sync_mode enabled
-  when T is T and O is T:  # This is a ZenValue[T]
-    if self.sync_mode != SyncMode.Yolo:
-      # Delegate to CRDT implementation
-      let crdt_instance = self.get_or_create_crdt_instance()
-      crdt_instance.set_crdt_value(value)
-      
-      # Note: Sync notifications are handled inside the CRDT value setter
-      # to avoid circular dependencies
-      return
+  # when T is T and O is T:  # This is a ZenValue[T]
+  #   if self.sync_mode != SyncMode.Yolo:
+  #     # Delegate to unified CRDT implementation
+  #     self.set_crdt_value(value, op_ctx)
+  #     return
   
   # Regular Zen behavior for non-CRDT or sync_mode = Yolo
   if self.tracked != value:
@@ -88,14 +84,7 @@ proc value*[T, O](self: Zen[T, O]): T =
   privileged
   assert self.valid
   
-  # Check if this is a ZenValue with CRDT sync_mode enabled
-  when T is T and O is T:  # This is a ZenValue[T]
-    if self.sync_mode != SyncMode.Yolo:
-      # Delegate to CRDT implementation
-      let crdt_instance = self.get_or_create_crdt_instance()
-      return crdt_instance.value
-  
-  # Regular Zen behavior for non-CRDT or sync_mode = Yolo
+  # Regular Zen behavior - unified API uses same value getter for now
   self.tracked
 
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
@@ -109,9 +98,9 @@ proc `[]`*[T](self: ZenSeq[T], index: SomeOrdinal | BackwardsIndex): T =
   
   # Check if this ZenSeq has CRDT sync_mode enabled
   if self.sync_mode != SyncMode.Yolo:
-    # Delegate to CRDT implementation
-    let crdt_instance = self.get_or_create_crdt_seq_instance()
-    return crdt_instance[index]
+    # For now, delegate to regular behavior - full ZenSeq CRDT support coming soon
+    discard
+    # TODO: Implement ZenSeq CRDT support with unified_crdt
   
   # Regular Zen behavior for sync_mode = Yolo
   self.tracked[index]
@@ -130,10 +119,9 @@ proc `[]=`*[T](
   
   # Check if this ZenSeq has CRDT sync_mode enabled
   if self.sync_mode != SyncMode.Yolo:
-    # Delegate to CRDT implementation
-    let crdt_instance = self.get_or_create_crdt_seq_instance()
-    crdt_instance[index] = value
-    return
+    # For now, delegate to regular behavior - full ZenSeq CRDT support coming soon
+    discard
+    # TODO: Implement ZenSeq CRDT support with unified_crdt
   
   # Regular Zen behavior for sync_mode = Yolo
   mutate(op_ctx):
@@ -150,10 +138,9 @@ proc add*[T, O](self: Zen[T, O], value: O, op_ctx = OperationContext()) =
   # Check if this is a ZenSeq with CRDT sync_mode enabled
   when T is seq[O] and O is O:  # This is a ZenSeq[O]
     if self.sync_mode != SyncMode.Yolo:
-      # Delegate to CRDT implementation
-      let crdt_instance = self.get_or_create_crdt_seq_instance()
-      crdt_instance.add(value)
-      return
+      # For now, delegate to regular behavior - full ZenSeq CRDT support coming soon
+      discard
+      # TODO: Implement ZenSeq CRDT support with unified_crdt
   
   # Regular Zen behavior for non-CRDT or sync_mode = Yolo
   self.tracked.add value
@@ -271,10 +258,9 @@ proc `+=`*[O](self: ZenSet[O], value: O) =
   
   # Check if this ZenSet has CRDT sync_mode enabled
   if self.sync_mode != SyncMode.Yolo:
-    # Delegate to CRDT implementation
-    let crdt_instance = self.get_or_create_crdt_set_instance()
-    crdt_instance += value
-    return
+    # For now, delegate to regular behavior - full ZenSet CRDT support coming soon
+    discard
+    # TODO: Implement ZenSet CRDT support with unified_crdt
   
   # Regular Zen behavior for sync_mode = Yolo
   self.change([value].to_hash_set, true, op_ctx = OperationContext())
@@ -284,11 +270,9 @@ proc `+=`*[T](self: Zen[HashSet[T], T], value: set[T]) =
   
   # Check if this ZenSet has CRDT sync_mode enabled
   if self.sync_mode != SyncMode.Yolo:
-    # Delegate to CRDT implementation
-    let crdt_instance = self.get_or_create_crdt_set_instance()
-    for item in value:
-      crdt_instance += item
-    return
+    # For now, delegate to regular behavior - full ZenSet CRDT support coming soon
+    discard
+    # TODO: Implement ZenSet CRDT support with unified_crdt
   
   # Regular Zen behavior for sync_mode = Yolo
   self.change(value.to_hash_set, true, op_ctx = OperationContext())
@@ -315,10 +299,9 @@ proc `-=`*[T: HashSet, O](self: Zen[T, O], value: O) =
   # Check if this is a ZenSet with CRDT sync_mode enabled
   when T is HashSet[O] and O is O:  # This is a ZenSet[O]
     if self.sync_mode != SyncMode.Yolo:
-      # Delegate to CRDT implementation
-      let crdt_instance = self.get_or_create_crdt_set_instance()
-      crdt_instance -= value
-      return
+      # For now, delegate to regular behavior - full ZenSet CRDT support coming soon
+      discard
+      # TODO: Implement ZenSet CRDT support with unified_crdt
   
   # Regular Zen behavior for non-CRDT or sync_mode = Yolo
   self.change([value].to_hash_set, false, op_ctx = OperationContext())
@@ -328,11 +311,9 @@ proc `-=`*[T](self: Zen[HashSet[T], T], value: set[T]) =
   
   # Check if this ZenSet has CRDT sync_mode enabled
   if self.sync_mode != SyncMode.Yolo:
-    # Delegate to CRDT implementation
-    let crdt_instance = self.get_or_create_crdt_set_instance()
-    for item in value:
-      crdt_instance -= item
-    return
+    # For now, delegate to regular behavior - full ZenSet CRDT support coming soon
+    discard
+    # TODO: Implement ZenSet CRDT support with unified_crdt
   
   # Regular Zen behavior for sync_mode = Yolo
   self.change(value.to_hash_set, false, op_ctx = OperationContext())

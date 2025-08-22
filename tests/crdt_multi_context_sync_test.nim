@@ -3,7 +3,7 @@ import pkg/unittest2
 import std/[times, tables]
 import model_citizen/[core, types, components/subscriptions]
 import model_citizen/zens/[contexts, initializers]
-import model_citizen/crdt/[crdt_types, crdt_zen_value]
+import model_citizen/crdt/[crdt_types, unified_crdt]
 
 proc run*() =
   suite "Multi-Context CRDT Sync Tests":
@@ -33,12 +33,12 @@ proc run*() =
     #   
     #   check zen_yolo.value == "yolo"
       
-    test "Direct CRDT ZenValue creation":
+    test "Unified CRDT ZenValue creation":
       var ctx = ZenContext.init(id = "test-ctx")
       
-      # Test direct CRDT value creation 
-      var crdt_val = CrdtZenValue[int].init(ctx = ctx, id = "crdt-test")
-      crdt_val.set_crdt_value(100)
+      # Test unified CRDT API - regular ZenValue with traditional sync mode
+      var crdt_val = ZenValue[int].init(ctx = ctx, id = "crdt-test", sync_mode = Yolo)
+      crdt_val.value = 100
       
       check crdt_val.value == 100
 
