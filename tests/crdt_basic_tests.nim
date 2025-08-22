@@ -13,7 +13,7 @@ proc run*() =
     
     test "ZenValue FastLocal CRDT mode":
       # Test that FastLocal mode provides immediate responsiveness
-      var player_pos = ZenValue[int].init(ctx, id = "player_pos", sync_mode = FastLocal)
+      var player_pos = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx, id = "player_pos")
       
       # Basic operations should work with unified API
       player_pos.value = 42
@@ -23,7 +23,7 @@ proc run*() =
       check player_pos.has_crdt_state() == true
     
     test "ZenValue CRDT sync modes":
-      var game_score = ZenValue[int].init(ctx, id = "game_score", sync_mode = FastLocal)
+      var game_score = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx, id = "game_score")
       
       # Start in FastLocal mode  
       check game_score.sync_mode == FastLocal
@@ -31,7 +31,7 @@ proc run*() =
       check game_score.value == 100
       
       # Unified API - sync modes are set at creation time
-      var wait_score = ZenValue[int].init(ctx, id = "wait_score", sync_mode = WaitForSync)
+      var wait_score = ZenValue[int].init(sync_mode = WaitForSync, ctx = ctx, id = "wait_score")
       check wait_score.sync_mode == WaitForSync
     
     test "Vector clock operations":
@@ -56,7 +56,7 @@ proc run*() =
       check clock1.happened_before(clock2) == true
     
     test "CRDT sync state tracking":
-      var sync_obj = ZenValue[string].init(ctx, id = "sync_test", sync_mode = FastLocal)
+      var sync_obj = ZenValue[string].init(sync_mode = FastLocal, ctx = ctx, id = "sync_test")
       
       # Setting value should work with unified API
       sync_obj.value = "test_value"

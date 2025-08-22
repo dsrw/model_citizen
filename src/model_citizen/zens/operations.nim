@@ -3,7 +3,7 @@ import model_citizen/[core, components/private/tracking, types {.all.}]
 import ./[contexts, validations, private]
 
 # Import unified CRDT support  
-# import model_citizen/crdt/unified_crdt
+import model_citizen/crdt/unified_crdt
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
   private_access ZenObject[T, O]
@@ -59,14 +59,24 @@ proc `value=`*[T, O](self: Zen[T, O], value: T, op_ctx = OperationContext()) =
   assert self.valid
   self.ctx.setup_op_ctx
   
-  # Check if this is a ZenValue with CRDT sync_mode enabled
-  # when T is T and O is T:  # This is a ZenValue[T]
-  #   if self.sync_mode != SyncMode.Yolo:
-  #     # Delegate to unified CRDT implementation
-  #     self.set_crdt_value(value, op_ctx)
-  #     return
+  # Regular Zen behavior for all types (CRDT logic is handled by specific ZenValue setter)
+  if self.tracked != value:
+    mutate(op_ctx):
+      self.tracked = value
+
+# Specific setter for ZenValue to handle CRDT sync modes
+proc `value=`*[T](self: ZenValue[T], value: T, op_ctx = OperationContext()) =
+  privileged
+  assert self.valid
+  self.ctx.setup_op_ctx
   
-  # Regular Zen behavior for non-CRDT or sync_mode = Yolo
+  # Check if this ZenValue has CRDT sync_mode enabled
+  if self.sync_mode != SyncMode.Yolo:
+    # Delegate to unified CRDT implementation
+    self.set_crdt_value(value, op_ctx)
+    return
+  
+  # Regular Zen behavior for sync_mode = Yolo
   if self.tracked != value:
     mutate(op_ctx):
       self.tracked = value
@@ -85,6 +95,12 @@ proc value*[T, O](self: Zen[T, O]): T =
   assert self.valid
   
   # Regular Zen behavior - unified API uses same value getter for now
+  self.tracked
+
+# Specific getter for ZenValue to match the setter
+proc value*[T](self: ZenValue[T]): T =
+  privileged
+  assert self.valid
   self.tracked
 
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =

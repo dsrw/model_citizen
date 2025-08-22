@@ -29,6 +29,8 @@ proc set_crdt_value*[T, O](zen: Zen[T, O], new_value: T, op_ctx = OperationConte
     if zen.sync_mode != SyncMode.Yolo:
       # For now, fall back to regular zen behavior until CRDT implementation is complete
       # This allows the unified API to work while we build out the full CRDT backend
-      zen.tracked = new_value
+      if zen.tracked != new_value:
+        zen.tracked = new_value
+        # TODO: Add CRDT sync logic here once backend is complete
 
 # TODO: Implement full CRDT backend sync operations

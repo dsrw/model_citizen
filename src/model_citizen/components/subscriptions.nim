@@ -88,6 +88,20 @@ proc from_flatty*[T: ref RootObj](s: string, i: var int, value: var T) =
         value = value.type()()
         value[] = flatty.from_flatty(s, value[].type)
 
+# Table serialization handlers for ZenContext types
+proc to_flatty*(s: var string, x: Table[string, int]) =
+  discard
+
+proc from_flatty*(s: string, i: var int, x: var Table[string, int]) =
+  x = init_table[string, int]()
+
+# Generic callback table serialization
+proc to_flatty*[O](s: var string, x: OrderedTable[ZID, ChangeCallback[O]]) =
+  discard
+
+proc from_flatty*[O](s: string, i: var int, x: var OrderedTable[ZID, ChangeCallback[O]]) =
+  x = init_ordered_table[ZID, ChangeCallback[O]]()
+
 proc to_flatty*(s: var string, x: proc) =
   discard
 
