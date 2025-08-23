@@ -4,7 +4,7 @@ import
   object_tests, utils_tests, validation_tests, error_handling_tests, memory_tests,
   crdt_basic_tests, network_threading_tests, ycrdt_ffi_test, zen_value_crdt_integration_test,
   simple_crdt_test, crdt_sync_demo, multi_context_crdt_sync_test, actual_sync_test,
-  simple_crdt_conflict_demo
+  simple_crdt_conflict_demo, zenSeq_crdt_demo
 
 Zen.bootstrap
 
@@ -26,3 +26,4 @@ crdt_sync_demo.run()
 multi_context_crdt_sync_test.run()
 actual_sync_test.run()
 simple_crdt_conflict_demo.run()
+zenSeq_crdt_demo.run()

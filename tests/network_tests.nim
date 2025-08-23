@@ -7,17 +7,18 @@ const recv_duration = init_duration(milliseconds = 10)
 proc run*() =
   test "4 way sync":
     var
-      ctx1 = ZenContext.init(id = "ctx1")
+      ctx1 = ZenContext.init(id = "ctx1", default_sync_mode = SyncMode.Yolo)
       ctx2 = ZenContext.init(
         id = "ctx2",
         listen_address = "127.0.0.1",
         min_recv_duration = recv_duration,
         blocking_recv = true,
+        default_sync_mode = SyncMode.Yolo,
       )
       ctx3 = ZenContext.init(
-        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true
+        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true, default_sync_mode = SyncMode.Yolo
       )
-      ctx4 = ZenContext.init(id = "ctx4")
+      ctx4 = ZenContext.init(id = "ctx4", default_sync_mode = SyncMode.Yolo)
 
     ctx2.subscribe(ctx1)
     ctx3.subscribe(ctx4)
@@ -46,17 +47,18 @@ proc run*() =
   test "trigger changes on subscribe":
     var
       count = 0
-      ctx1 = ZenContext.init(id = "ctx1")
+      ctx1 = ZenContext.init(id = "ctx1", default_sync_mode = SyncMode.Yolo)
       ctx2 = ZenContext.init(
         id = "ctx2",
         listen_address = "127.0.0.1",
         min_recv_duration = recv_duration,
         blocking_recv = true,
+        default_sync_mode = SyncMode.Yolo,
       )
       ctx3 = ZenContext.init(
-        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true
+        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true, default_sync_mode = SyncMode.Yolo
       )
-      ctx4 = ZenContext.init(id = "ctx4")
+      ctx4 = ZenContext.init(id = "ctx4", default_sync_mode = SyncMode.Yolo)
 
     var
       a = Zen.init(@["a1", "a2"], id = "test2", ctx = ctx1)
@@ -96,17 +98,18 @@ proc run*() =
   test "nested collection":
     var
       count = 0
-      ctx1 = ZenContext.init(id = "ctx1")
+      ctx1 = ZenContext.init(id = "ctx1", default_sync_mode = SyncMode.Yolo)
       ctx2 = ZenContext.init(
         id = "ctx2",
         listen_address = "127.0.0.1",
         min_recv_duration = recv_duration,
         blocking_recv = true,
+        default_sync_mode = SyncMode.Yolo,
       )
       ctx3 = ZenContext.init(
-        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true
+        id = "ctx3", min_recv_duration = recv_duration, blocking_recv = true, default_sync_mode = SyncMode.Yolo
       )
-      ctx4 = ZenContext.init(id = "ctx4")
+      ctx4 = ZenContext.init(id = "ctx4", default_sync_mode = SyncMode.Yolo)
 
     var
       a = Zen.init(@["a1", "a2"], id = "test2", ctx = ctx1)

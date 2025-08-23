@@ -20,8 +20,8 @@ proc run*() =
 
   test "object publish inheritance":
     var
-      ctx1 = ZenContext.init(id = "ctx1")
-      ctx2 = ZenContext.init(id = "ctx2")
+      ctx1 = ZenContext.init(id = "ctx1", default_sync_mode = SyncMode.Yolo)
+      ctx2 = ZenContext.init(id = "ctx2", default_sync_mode = SyncMode.Yolo)
       build = Build(id: "some_build", build_stuff: "asdf")
       bot = Bot(id: "some_bot", bot_stuff: "wasd")
       units1 = ZenSeq[Unit].init(id = "units", ctx = ctx1)
@@ -44,8 +44,8 @@ proc run*() =
 
   test "object mass assign inheritance":
     var
-      ctx1 = ZenContext.init(id = "ctx1")
-      ctx2 = ZenContext.init(id = "ctx2")
+      ctx1 = ZenContext.init(id = "ctx1", default_sync_mode = SyncMode.Yolo)
+      ctx2 = ZenContext.init(id = "ctx2", default_sync_mode = SyncMode.Yolo)
       build = Build(id: "some_build", build_stuff: "asdf")
       bot = Bot(id: "some_bot", bot_stuff: "wasd")
       units1 = ZenSeq[Unit].init(id = "units", ctx = ctx1)
@@ -71,8 +71,8 @@ proc run*() =
 
   test "object publish on subscribe inheritance":
     var
-      ctx1 = ZenContext.init(id = "ctx1")
-      ctx2 = ZenContext.init(id = "ctx2")
+      ctx1 = ZenContext.init(id = "ctx1", default_sync_mode = SyncMode.Yolo)
+      ctx2 = ZenContext.init(id = "ctx2", default_sync_mode = SyncMode.Yolo)
       build = Build(id: "some_build", build_stuff: "asdf")
       bot = Bot(id: "some_bot", bot_stuff: "wasd")
       units1 = ZenSeq[Unit].init(id = "units", ctx = ctx1)
@@ -94,8 +94,8 @@ proc run*() =
   test "objects sync their values after subscription":
     var
       flags = {TrackChildren}
-      ctx1 = ZenContext.init(id = "ctx1")
-      ctx2 = ZenContext.init(id = "ctx2")
+      ctx1 = ZenContext.init(id = "ctx1", default_sync_mode = SyncMode.Yolo)
+      ctx2 = ZenContext.init(id = "ctx2", default_sync_mode = SyncMode.Yolo)
       a = ZenValue[string].init(id = "test1", ctx = ctx1, flags = flags)
       b = ZenValue[string].init(id = "test1", ctx = ctx2, flags = flags)
       c = ZenValue[string].init(id = "test2", ctx = ctx1, flags = flags)

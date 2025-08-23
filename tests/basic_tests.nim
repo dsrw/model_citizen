@@ -47,8 +47,8 @@ proc run*() =
     block local:
       debug "local run"
       var
-        ctx1 {.inject.} = ZenContext.init(id = "ctx1", blocking_recv = true)
-        ctx2 {.inject.} = ZenContext.init(id = "ctx2", blocking_recv = true)
+        ctx1 {.inject.} = ZenContext.init(id = "ctx1", blocking_recv = true, default_sync_mode = SyncMode.Yolo)
+        ctx2 {.inject.} = ZenContext.init(id = "ctx2", blocking_recv = true, default_sync_mode = SyncMode.Yolo)
 
       ctx2.subscribe(ctx1)
       Zen.thread_ctx = ctx1
@@ -66,10 +66,11 @@ proc run*() =
           listen_address = "127.0.0.1",
           min_recv_duration = recv_duration,
           blocking_recv = true,
+          default_sync_mode = SyncMode.Yolo,
         )
 
         ctx2 {.inject.} = ZenContext.init(
-          id = "ctx2", min_recv_duration = recv_duration, blocking_recv = true
+          id = "ctx2", min_recv_duration = recv_duration, blocking_recv = true, default_sync_mode = SyncMode.Yolo
         )
 
       ctx2.subscribe "127.0.0.1",
@@ -570,7 +571,7 @@ proc run*() =
       ctx2.boop
       check dest.values[^1].value == "hi"
 
-      var ctx3 = ZenContext.init(id = "ctx3")
+      var ctx3 = ZenContext.init(id = "ctx3", default_sync_mode = SyncMode.Yolo)
       Zen.thread_ctx = ctx3
       ctx3.subscribe(ctx2, bidirectional = false)
       Zen.thread_ctx = ctx1

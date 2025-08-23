@@ -66,16 +66,6 @@ proc yarray_remove_safe*(array: ptr Branch, txn: ptr YTransaction, index: uint32
   ## Safe wrapper for removing from Y-CRDT array
   yarray_remove_range(array, txn, index, length)
 
-proc yarray_get_safe*[T](array: ptr Branch, txn: ptr YTransaction, index: uint32): T =
-  ## Safe wrapper for getting from Y-CRDT array
-  # This is a simplified version - full implementation would need Y-CRDT output parsing
-  when T is string:
-    result = ""  # Placeholder - would read from Y-CRDT output
-  elif T is int:
-    result = 0   # Placeholder - would read from Y-CRDT output
-  else:
-    result = T.default
-
 proc extract_value*[T](output: ptr YOutput, target_type: type T): T =
   if output == nil:
     return T.default
@@ -102,6 +92,25 @@ proc extract_value*[T](output: ptr YOutput, target_type: type T): T =
     result = if ptr_val != nil: ptr_val[].float else: 0.0
   else:
     {.error: "Unsupported type for Y-CRDT extraction".}
+
+proc yarray_get_safe*[T](array: ptr Branch, txn: ptr YTransaction, index: uint32): T =
+  ## Safe wrapper for getting from Y-CRDT array
+  let output = yarray_get(array, txn, index)
+  if output != nil:
+    result = extract_value(output, T)
+  else:
+    result = T.default
+
+proc yarray_length_safe*(array: ptr Branch, txn: ptr YTransaction): uint32 =
+  ## Get the length of a Y-CRDT array
+  yarray_len(array)
+
+proc yarray_to_seq*[T](array: ptr Branch, txn: ptr YTransaction, item_type: type T): seq[T] =
+  ## Convert Y-CRDT array to Nim sequence
+  let length = yarray_length_safe(array, txn)
+  result = new_seq[T](length)
+  for i in 0..<length:
+    result[i] = yarray_get_safe[T](array, txn, i)
 
 template ymap_insert_safe*(map: ptr Branch, txn: ptr YTransaction, key: cstring, value: untyped) =
   var input = create_yinput(value)

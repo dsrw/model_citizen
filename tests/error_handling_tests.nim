@@ -6,7 +6,7 @@ import model_citizen/components/type_registry
 proc run*() =
   test "memory cleanup on context destruction":
     block:
-      var ctx = ZenContext.init(id = "temp_ctx")
+      var ctx = ZenContext.init(id = "temp_ctx", default_sync_mode = SyncMode.Yolo)
       var obj1 = ZenValue[string].init(ctx = ctx, id = "obj1")
       var obj2 = ZenSeq[int].init(ctx = ctx, id = "obj2")
       var obj3 = ZenTable[string, float].init(ctx = ctx, id = "obj3")
@@ -21,7 +21,7 @@ proc run*() =
     # Memory should be cleaned up automatically
 
   test "reference pool cleanup":
-    var ctx = ZenContext.init(id = "ref_ctx")
+    var ctx = ZenContext.init(id = "ref_ctx", default_sync_mode = SyncMode.Yolo)
 
     type RefObject = ref object of RootObj
       id: string

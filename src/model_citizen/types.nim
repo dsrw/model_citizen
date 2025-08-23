@@ -11,6 +11,7 @@ type
     SyncAllNoOverwrite
 
   SyncMode* = enum
+    ContextDefault ## Use the default sync mode from the ZenContext
     Yolo ## Traditional Zen sync without CRDT (fast but no conflict resolution)
     FastLocal ## Apply changes immediately locally, sync in background via CRDT
     WaitForSync ## Wait for CRDT convergence before applying changes
@@ -120,6 +121,7 @@ type
     reactor*: Reactor
     remote_messages: seq[netty.Message]
     blocking_recv: bool
+    default_sync_mode*: SyncMode ## Default sync mode for objects in ContextDefault mode
     buffer: bool
     min_recv_duration: Duration
     max_recv_duration: Duration

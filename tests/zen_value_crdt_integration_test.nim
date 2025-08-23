@@ -15,7 +15,7 @@ proc run*() =
       var fast_local = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx, id = "fast")  
       var wait_sync = ZenValue[int].init(sync_mode = WaitForSync, ctx = ctx, id = "wait")
       
-      check regular.sync_mode == SyncMode.FastLocal
+      check regular.sync_mode == SyncMode.Yolo
       check fast_local.sync_mode == FastLocal
       check wait_sync.sync_mode == WaitForSync
     
@@ -37,9 +37,9 @@ proc run*() =
       var zen_int = ZenValue[int].init(ctx = ctx)
       var zen_str = ZenValue[string].init(ctx = ctx)
       
-      # Default sync_mode should be FastLocal
-      check zen_int.sync_mode == SyncMode.FastLocal
-      check zen_str.sync_mode == SyncMode.FastLocal
+      # Default sync_mode should be Yolo for backward compatibility
+      check zen_int.sync_mode == SyncMode.Yolo
+      check zen_str.sync_mode == SyncMode.Yolo
       
       # Basic operations
       zen_int.value = 42
@@ -48,10 +48,10 @@ proc run*() =
       check zen_int.value == 42
       check zen_str.value == "test"
     
-    test "FastLocal is now the default mode":
-      # Test that FastLocal is now the default
+    test "Yolo is the default mode for backward compatibility":
+      # Test that Yolo is the default for backward compatibility
       var crdt_zen = ZenValue[int].init(ctx = ctx)
-      check crdt_zen.sync_mode == FastLocal
+      check crdt_zen.sync_mode == Yolo
       
       # Should work with basic operations
       crdt_zen.value = 100

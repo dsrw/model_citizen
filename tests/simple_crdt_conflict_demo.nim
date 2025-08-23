@@ -146,12 +146,13 @@ suite "🚀 Simple CRDT Conflict Resolution Demo":
     
     echo "  ✅ All sync modes working correctly!"
 
-echo "\n" & "=".repeat(50)
-echo "🎉 CRDT Demo Complete!"
-echo "=".repeat(50)
-echo "✅ Real Y-CRDT operations demonstrated"
-echo "✅ Multiple sync modes working"
-echo "✅ Multi-type CRDT support confirmed"
-echo "✅ Document sharing architecture verified"
-echo "✅ Production-ready CRDT system operational!"
-echo ""
+proc run*() =
+  echo "\n" & "=".repeat(50)
+  echo "🎉 CRDT Demo Complete!"
+  echo "=".repeat(50)
+  echo "✅ Real Y-CRDT operations demonstrated"
+  echo "✅ Multiple sync modes working"
+  echo "✅ Multi-type CRDT support confirmed"
+  echo "✅ Document sharing architecture verified"
+  echo "✅ Production-ready CRDT system operational!"
+  echo ""

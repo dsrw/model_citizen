@@ -56,6 +56,7 @@ proc init*(
     max_recv_duration = Duration.default,
     min_recv_duration = Duration.default,
     label = "default",
+    default_sync_mode = SyncMode.FastLocal,
 ): ZenContext =
   privileged
   log_scope:
@@ -70,6 +71,7 @@ proc init*(
     min_recv_duration: min_recv_duration,
     buffer: buffer,
     metrics_label: label,
+    default_sync_mode: default_sync_mode,
   )
 
   result.chan = new_chan[Message](elements = chan_size)
@@ -89,7 +91,7 @@ proc init*(
 
 proc thread_ctx*(t: type Zen): ZenContext =
   if active_ctx == nil:
-    active_ctx = ZenContext.init(id = "thread-" & $get_thread_id())
+    active_ctx = ZenContext.init(id = "thread-" & $get_thread_id(), default_sync_mode = SyncMode.Yolo)
   active_ctx
 
 proc thread_ctx*(_: type ZenBase): ZenContext =
@@ -100,6 +102,13 @@ proc `thread_ctx=`*(_: type Zen, ctx: ZenContext) =
 
 proc `$`*(self: ZenContext): string =
   \"ZenContext {self.id}"
+
+proc effective_sync_mode*[T, O](zen: Zen[T, O]): SyncMode =
+  ## Resolve the effective sync mode, using context default if needed
+  if zen.sync_mode == ContextDefault:
+    zen.ctx.default_sync_mode
+  else:
+    zen.sync_mode
 
 proc `[]`*[T, O](self: ZenContext, src: Zen[T, O]): Zen[T, O] =
   result = Zen[T, O](self.objects[src.id])
