@@ -23,12 +23,14 @@ proc run*() =
           id = "player_score"
         )
         
-        # Set initial values
+        # Set values sequentially - with shared CRDT, last write wins
         player_score1.value = 100
-        player_score2.value = 200
-        
-        # Both should have their local values immediately (FastLocal mode)
         check player_score1.value == 100
+        check player_score2.value == 100  # Should see player1's value due to shared CRDT
+        
+        player_score2.value = 200
+        # Both should now see the last written value (CRDT synchronization)
+        check player_score1.value == 200
         check player_score2.value == 200
         
         # Verify they have CRDT state
@@ -61,12 +63,14 @@ proc run*() =
           id = "shared_counter"
         )
         
-        # Set different values
+        # Set different values sequentially
         shared_counter_a.value = 42
-        shared_counter_b.value = 84
-        
-        # FastLocal should show local values immediately 
         check shared_counter_a.value == 42
+        check shared_counter_b.value == 42  # Should see shared value
+        
+        shared_counter_b.value = 84
+        # Both should see the last written value
+        check shared_counter_a.value == 84
         check shared_counter_b.value == 84
         
         # Both should have CRDT backend enabled

@@ -15,16 +15,16 @@ proc run*() =
         var writer = ZenValue[int].init(
           sync_mode = FastLocal,
           ctx = ctx1,
-          id = "shared_counter"
+          id = "actual_sync_counter"
         )
         
         var reader = ZenValue[int].init(
           sync_mode = FastLocal,
           ctx = ctx2,
-          id = "shared_counter"  # SAME ID = shared Y-CRDT document
+          id = "actual_sync_counter"  # SAME ID = shared Y-CRDT document
         )
         
-        # Initially, both should have default values  
+        # Initially, both should have default values (0 for new document)
         check writer.value == 0
         check reader.value == 0
         
@@ -50,13 +50,13 @@ proc run*() =
         var alice_message = ZenValue[string].init(
           sync_mode = FastLocal,
           ctx = ctx_alice,
-          id = "chat_message"
+          id = "actual_chat_message"
         )
         
         var bob_message = ZenValue[string].init(
           sync_mode = FastLocal,
           ctx = ctx_bob,
-          id = "chat_message"  # SAME ID
+          id = "actual_chat_message"  # SAME ID
         )
         
         # Alice writes a message
@@ -87,9 +87,9 @@ proc run*() =
       var ctx3 = ZenContext.init(id = "node3")
       
       try:
-        var counter1 = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx1, id = "global_counter")
-        var counter2 = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx2, id = "global_counter")  
-        var counter3 = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx3, id = "global_counter")
+        var counter1 = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx1, id = "actual_global_counter")
+        var counter2 = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx2, id = "actual_global_counter")  
+        var counter3 = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx3, id = "actual_global_counter")
         
         # All start at 0
         check counter1.value == 0
@@ -124,8 +124,8 @@ proc run*() =
       var ctx_server = ZenContext.init(id = "server")
       
       try:
-        var client_flag = ZenValue[bool].init(sync_mode = FastLocal, ctx = ctx_client, id = "ready_flag")
-        var server_flag = ZenValue[bool].init(sync_mode = FastLocal, ctx = ctx_server, id = "ready_flag")
+        var client_flag = ZenValue[bool].init(sync_mode = FastLocal, ctx = ctx_client, id = "actual_ready_flag")
+        var server_flag = ZenValue[bool].init(sync_mode = FastLocal, ctx = ctx_server, id = "actual_ready_flag")
         
         # Initially false
         check client_flag.value == false
@@ -150,8 +150,8 @@ proc run*() =
       var ctx2 = ZenContext.init(id = "display1")
       
       try:
-        var sensor_temp = ZenValue[float].init(sync_mode = FastLocal, ctx = ctx1, id = "temperature")
-        var display_temp = ZenValue[float].init(sync_mode = FastLocal, ctx = ctx2, id = "temperature")
+        var sensor_temp = ZenValue[float].init(sync_mode = FastLocal, ctx = ctx1, id = "actual_temperature")
+        var display_temp = ZenValue[float].init(sync_mode = FastLocal, ctx = ctx2, id = "actual_temperature")
         
         # Sensor reads temperature
         sensor_temp.value = 23.5

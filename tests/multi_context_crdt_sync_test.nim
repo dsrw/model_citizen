@@ -24,12 +24,14 @@ proc run*() =
           id = "shared_player_score"  # SAME ID 
         )
         
-        # Set different values initially
+        # Set values sequentially - CRDT synchronization
         player_score_ctx1.value = 100
-        player_score_ctx2.value = 200
-        
-        # Both should have their local values immediately (FastLocal mode)
         check player_score_ctx1.value == 100
+        check player_score_ctx2.value == 100  # Should see shared CRDT value
+        
+        player_score_ctx2.value = 200
+        # Both should see the last written value
+        check player_score_ctx1.value == 200
         check player_score_ctx2.value == 200
         
         # Verify they have CRDT state
@@ -99,12 +101,14 @@ proc run*() =
         
         # Update game state from server
         game_state_server.value = "player1_turn"
+        check game_state_server.value == "player1_turn"
+        check game_state_ui.value == "player1_turn"  # Should see shared value
         
         # Update from UI 
         game_state_ui.value = "player2_turn"
         
-        # Both should have their local updates immediately
-        check game_state_server.value == "player1_turn"
+        # Both should see the last update due to CRDT sharing
+        check game_state_server.value == "player2_turn"
         check game_state_ui.value == "player2_turn"
         
         # Both should have CRDT backend
@@ -133,12 +137,14 @@ proc run*() =
           id = "sync_counter"  # SAME ID
         )
         
-        # Set values (should still work at API level)
+        # Set values sequentially with WaitForSync mode
         primary_counter.value = 1000
-        replica_counter.value = 2000
-        
-        # API should work regardless of sync mode  
         check primary_counter.value == 1000
+        check replica_counter.value == 1000  # Should see shared CRDT value
+        
+        replica_counter.value = 2000
+        # Both should see the last written value
+        check primary_counter.value == 2000
         check replica_counter.value == 2000
         check primary_counter.sync_mode == WaitForSync
         check replica_counter.sync_mode == WaitForSync
