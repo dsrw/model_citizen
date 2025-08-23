@@ -6,7 +6,7 @@ import model_citizen/components/type_registry
 proc run*() =
   test "memory cleanup on context destruction":
     block:
-      var ctx = ZenContext.init(id = "temp_ctx")
+      var ctx = ZenContext.init(id = "temp_ctx", default_sync_mode = SyncMode.Yolo)
       var obj1 = ZenValue[string].init(ctx = ctx, id = "obj1")
       var obj2 = ZenSeq[int].init(ctx = ctx, id = "obj2")
       var obj3 = ZenTable[string, float].init(ctx = ctx, id = "obj3")
@@ -21,7 +21,7 @@ proc run*() =
     # Memory should be cleaned up automatically
 
   test "reference pool cleanup":
-    var ctx = ZenContext.init(id = "ref_ctx")
+    var ctx = ZenContext.init(id = "ref_ctx", default_sync_mode = SyncMode.Yolo)
 
     type RefObject = ref object of RootObj
       id: string
@@ -46,7 +46,7 @@ proc run*() =
     # Reference should eventually be cleaned up
 
   test "circular reference handling":
-    var ctx = ZenContext.init(id = "circular_ctx")
+    var ctx = ZenContext.init(id = "circular_ctx", default_sync_mode = SyncMode.Yolo)
 
     type
       NodeA = ref object of RootObj
@@ -75,7 +75,7 @@ proc run*() =
     check node_b.a_ref.value == node_a
 
   test "memory pressure handling":
-    var ctx = ZenContext.init(id = "pressure_ctx")
+    var ctx = ZenContext.init(id = "pressure_ctx", default_sync_mode = SyncMode.Yolo)
 
     # Create many objects to test memory pressure
     var objects: seq[ZenValue[string]]
@@ -98,9 +98,9 @@ proc run*() =
         obj.destroy()
 
   test "subscription memory management":
-    var ctx1 = ZenContext.init(id = "sub_ctx1")
-    var ctx2 = ZenContext.init(id = "sub_ctx2")
-    var ctx3 = ZenContext.init(id = "sub_ctx3")
+    var ctx1 = ZenContext.init(id = "sub_ctx1", default_sync_mode = SyncMode.Yolo)
+    var ctx2 = ZenContext.init(id = "sub_ctx2", default_sync_mode = SyncMode.Yolo)
+    var ctx3 = ZenContext.init(id = "sub_ctx3", default_sync_mode = SyncMode.Yolo)
 
     # Create subscription chain
     ctx2.subscribe(ctx1)
@@ -123,8 +123,8 @@ proc run*() =
     # Note: Actual unsubscription would require more complex teardown
 
   test "large object serialization":
-    var ctx1 = ZenContext.init(id = "serialize_ctx1")
-    var ctx2 = ZenContext.init(id = "serialize_ctx2")
+    var ctx1 = ZenContext.init(id = "serialize_ctx1", default_sync_mode = SyncMode.Yolo)
+    var ctx2 = ZenContext.init(id = "serialize_ctx2", default_sync_mode = SyncMode.Yolo)
 
     ctx2.subscribe(ctx1)
 
@@ -145,7 +145,7 @@ proc run*() =
     check remote_table["key_1"].len > 100
 
   test "tracking callback cleanup":
-    var ctx = ZenContext.init(id = "callback_ctx")
+    var ctx = ZenContext.init(id = "callback_ctx", default_sync_mode = SyncMode.Yolo)
     var obj = ZenValue[string].init(ctx = ctx)
 
     var callback_count = 0

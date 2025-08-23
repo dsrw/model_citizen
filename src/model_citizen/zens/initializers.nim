@@ -30,7 +30,7 @@ proc create_initializer[T, O](self: Zen[T, O]) =
           debug "creating received object", id
           if not ctx.subscribing and id notin ctx:
             var value = bin.from_flatty(T, ctx)
-            discard Zen.init(value, ctx = ctx, id = id, flags = flags, op_ctx)
+            discard Zen.init(value, ctx = ctx, id = id, flags = flags, op_ctx = op_ctx)
           elif not ctx.subscribing:
             debug "restoring received object", id
             var value = bin.from_flatty(T, ctx)
@@ -38,7 +38,7 @@ proc create_initializer[T, O](self: Zen[T, O]) =
             `value=`(item, value, op_ctx = op_ctx)
           else:
             if id notin ctx:
-              discard Zen[T, O].init(ctx = ctx, id = id, flags = flags, op_ctx)
+              discard Zen[T, O].init(ctx = ctx, id = id, flags = flags, op_ctx = op_ctx)
 
             let initializer = proc() =
               debug "deferred restore of received object value", id
@@ -48,7 +48,7 @@ proc create_initializer[T, O](self: Zen[T, O]) =
               `value=`(item, value, op_ctx = op_ctx)
             ctx.value_initializers.add(initializer)
         elif id notin ctx:
-          discard Zen[T, O].init(ctx = ctx, id = id, flags = flags, op_ctx)
+          discard Zen[T, O].init(ctx = ctx, id = id, flags = flags, op_ctx = op_ctx)
 
 proc defaults[T, O](
     self: Zen[T, O], ctx: ZenContext, id: string, op_ctx: OperationContext
@@ -219,45 +219,49 @@ proc defaults[T, O](
 proc init*(
     T: type Zen,
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): T =
   ctx.setup_op_ctx
-  T(flags: flags).defaults(ctx, id, op_ctx)
+  T(flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
 proc init*(
     _: type,
     T: type[string],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[string, string] =
   ctx.setup_op_ctx
-  result = Zen[string, string](flags: flags).defaults(ctx, id, op_ctx)
+  result = Zen[string, string](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
 proc init*(
     _: type Zen,
     T: type[ref | object | SomeOrdinal | SomeNumber],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[T, T] =
   ctx.setup_op_ctx
-  result = Zen[T, T](flags: flags).defaults(ctx, id, op_ctx)
+  result = Zen[T, T](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
 proc init*[T: ref | object | tuple | SomeOrdinal | SomeNumber | string | ptr](
     _: type Zen,
     tracked: T,
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[T, T] =
   ctx.setup_op_ctx
-  var self = Zen[T, T](flags: flags).defaults(ctx, id, op_ctx)
+  var self = Zen[T, T](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked
@@ -267,12 +271,13 @@ proc init*[O](
     _: type Zen,
     tracked: set[O],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[HashSet[O], O] =
   ctx.setup_op_ctx
-  var self = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
+  var self = Zen[HashSet[O], O](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked.to_hash_set
@@ -282,12 +287,13 @@ proc init*[O](
     _: type Zen,
     tracked: HashSet[O],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[HashSet[O], O] =
   ctx.setup_op_ctx
-  var self = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
+  var self = Zen[HashSet[O], O](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked
@@ -297,12 +303,13 @@ proc init*[K, V](
     _: type Zen,
     tracked: Table[K, V],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): ZenTable[K, V] =
   ctx.setup_op_ctx
-  var self = ZenTable[K, V](flags: flags).defaults(ctx, id, op_ctx)
+  var self = ZenTable[K, V](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked
@@ -312,12 +319,13 @@ proc init*[O](
     _: type Zen,
     tracked: open_array[O],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[seq[O], O] =
   ctx.setup_op_ctx
-  var self = Zen[seq[O], O](flags: flags).defaults(ctx, id, op_ctx)
+  var self = Zen[seq[O], O](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
   mutate(op_ctx):
     self.tracked = tracked.to_seq
@@ -327,56 +335,61 @@ proc init*[O](
     _: type Zen,
     T: type seq[O],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[seq[O], O] =
   ctx.setup_op_ctx
-  result = Zen[seq[O], O](flags: flags).defaults(ctx, id, op_ctx)
+  result = Zen[seq[O], O](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
 proc init*[O](
     _: type Zen,
     T: type set[O],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[HashSet[O], O] =
   ctx.setup_op_ctx
-  result = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
+  result = Zen[HashSet[O], O](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
 proc init*[O](
     _: type Zen,
     T: type HashSet[O],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[HashSet[O], O] =
   ctx.setup_op_ctx
-  result = Zen[HashSet[O], O](flags: flags).defaults(ctx, id, op_ctx)
+  result = Zen[HashSet[O], O](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
 proc init*[K, V](
     _: type Zen,
     T: type Table[K, V],
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): Zen[Table[K, V], Pair[K, V]] =
   ctx.setup_op_ctx
-  result = Zen[Table[K, V], Pair[K, V]](flags: flags).defaults(ctx, id, op_ctx)
+  result = Zen[Table[K, V], Pair[K, V]](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
 proc init*(
     _: type Zen,
     K, V: type,
     flags = default_flags,
+    sync_mode = SyncMode.ContextDefault,
     ctx = ctx(),
     id = "",
     op_ctx = OperationContext(),
 ): ZenTable[K, V] =
   ctx.setup_op_ctx
-  result = ZenTable[K, V](flags: flags).defaults(ctx, id, op_ctx)
+  result = ZenTable[K, V](flags: flags, sync_mode: sync_mode).defaults(ctx, id, op_ctx)
 
 proc zen_init_private*[K, V](
     tracked: open_array[(K, V)],

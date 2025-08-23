@@ -9,9 +9,11 @@ export
 
 export netty except Message
 
+# Ensure HashSet iterator is available (fix for iterator conflict)
+
 proc to_flatty*[T](s: HashSet[T]): string =
   result.add_int64(s.card.int64)
-  for item in s:
+  for item in sets.items(s):
     result.to_flatty(item)
 
 proc from_flatty*[T](s: var HashSet[T], data: string) =
@@ -37,3 +39,4 @@ proc `==`*[T](hs: HashSet[T], s: set[T]): bool =
 
 proc `==`*[T](s: set[T], hs: HashSet[T]): bool =
   s.to_hash_set == hs
+

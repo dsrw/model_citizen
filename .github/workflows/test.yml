@@ -8,7 +8,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     
     steps:
       - name: Checkout code
@@ -20,8 +23,37 @@ jobs:
           nim-version: '2.2.0'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libpcre3-dev
+      - name: Install system dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcre3-dev build-essential libclang-dev
+      
+      - name: Install system dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          # macOS has build tools by default, just make sure we have them
+          xcode-select --install 2>/dev/null || true
+      
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          override: true
+      
+      - name: Cache Y-CRDT build
+        uses: actions/cache@v3
+        with:
+          path: |
+            y-crdt
+            lib
+          key: ${{ runner.os }}-ycrdt-${{ hashFiles('**/Cargo.lock', 'setup_ycrdt.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-ycrdt-
+      
+      - name: Build Y-CRDT library
+        run: ./setup_ycrdt.sh
       
       - name: Install dependencies
         run: nimble install -y --depsOnly

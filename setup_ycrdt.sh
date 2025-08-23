@@ -1,0 +1,173 @@
+#!/bin/bash
+
+# Y-CRDT Setup Script for model_citizen
+# This script downloads and builds Y-CRDT for macOS ARM64
+
+set -e
+
+echo "🚀 Setting up Y-CRDT for model_citizen..."
+
+# Check platform
+PLATFORM=$(uname -s)
+ARCH=$(uname -m)
+
+echo "Platform: $PLATFORM $ARCH"
+
+# Install Rust if not present
+if ! command -v rustc &> /dev/null; then
+    echo "📦 Installing Rust toolchain..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source ~/.cargo/env
+else
+    echo "✅ Rust already installed"
+fi
+
+# Create lib directory if it doesn't exist
+mkdir -p lib
+
+# Clone Y-CRDT if not already present
+if [ ! -d "y-crdt" ]; then
+    echo "📥 Cloning Y-CRDT repository..."
+    git clone https://github.com/y-crdt/y-crdt.git
+else
+    echo "✅ Y-CRDT repository already exists"
+    cd y-crdt
+    git pull origin main
+    cd ..
+fi
+
+cd y-crdt
+
+# Build the C FFI library
+echo "🔨 Building Y-CRDT C FFI library..."
+cd yffi
+
+# Check current directory
+echo "📋 Current directory: $(pwd)"
+echo "📋 Contents of current directory:"
+ls -la
+
+# Build and capture output
+echo "🔨 Starting cargo build..."
+cargo build --release --verbose
+
+# Check what was actually built
+echo "📋 Contents after build:"
+ls -la
+echo "📋 Checking target directory:"
+find . -name "target" -type d 2>/dev/null || echo "No target directory found"
+echo "📋 Looking for any built files:"
+find . -name "*.so" -o -name "*.dylib" -o -name "*.a" 2>/dev/null || echo "No library files found"
+
+# Copy the built library to our lib directory
+echo "📋 Copying library to model_citizen/lib..."
+
+# Cargo builds in workspace root, so go up one level to find target directory
+cd ..
+
+# List available files to debug
+echo "📋 Available files in workspace target/release:"
+ls -la target/release/ || true
+echo "📋 Looking for any shared library files in workspace:"
+find target/release -name "*.so" -o -name "*.dylib" -o -name "*.dll" 2>/dev/null || true
+
+if [ "$PLATFORM" = "Darwin" ]; then
+    LIB_NAME="libyrs.dylib"
+    # Try different possible filenames
+    if [ -f "target/release/$LIB_NAME" ]; then
+        cp target/release/$LIB_NAME ../lib/
+    elif [ -f "target/release/libyffi.dylib" ]; then
+        cp target/release/libyffi.dylib ../lib/$LIB_NAME
+    else
+        echo "❌ Could not find Darwin library file"
+        exit 1
+    fi
+    
+    # Update the library ID for proper loading
+    install_name_tool -id "@rpath/$LIB_NAME" ../lib/$LIB_NAME
+    
+    echo "✅ $LIB_NAME installed to lib/"
+elif [ "$PLATFORM" = "Linux" ]; then
+    LIB_NAME="libyrs.so"
+    # Try different possible filenames
+    if [ -f "target/release/$LIB_NAME" ]; then
+        cp target/release/$LIB_NAME ../lib/
+    elif [ -f "target/release/libyffi.so" ]; then
+        cp target/release/libyffi.so ../lib/$LIB_NAME
+    else
+        echo "❌ Could not find Linux library file"
+        exit 1
+    fi
+    echo "✅ $LIB_NAME installed to lib/"
+else
+    echo "❌ Unsupported platform: $PLATFORM"
+    exit 1
+fi
+
+cd ..
+
+# Copy header file  
+echo "📋 Copying header file..."
+echo "📋 Current directory: $(pwd)"
+echo "📋 Looking for header file:"
+find . -name "libyrs.h" 2>/dev/null || echo "Header file not found"
+ls -la yffi/include/ || echo "Include directory not found"
+
+if [ -f "yffi/include/libyrs.h" ]; then
+    cp yffi/include/libyrs.h ../lib/
+    echo "✅ Header file copied"
+else
+    echo "⚠️  Header file not found, may need to be generated"
+fi
+
+# Test the library
+echo "🧪 Testing Y-CRDT library..."
+cd lib
+
+# Create a simple test program
+cat > test_ycrdt.c << 'EOF'
+#include <stdio.h>
+#include "libyrs.h"
+
+int main() {
+    printf("Testing Y-CRDT library...\n");
+    
+    // Create a new document
+    YDoc* doc = ydoc_new();
+    if (doc) {
+        printf("✅ Y-CRDT library loaded successfully!\n");
+        ydoc_destroy(doc);
+        return 0;
+    } else {
+        printf("❌ Failed to create Y-CRDT document\n");
+        return 1;
+    }
+}
+EOF
+
+# Compile and run test
+if [ "$PLATFORM" = "Darwin" ]; then
+    gcc -o test_ycrdt test_ycrdt.c -L. -lyrs -Wl,-rpath,.
+else
+    gcc -o test_ycrdt test_ycrdt.c -L. -lyrs -Wl,-rpath,.
+fi
+
+if ./test_ycrdt; then
+    echo "🎉 Y-CRDT setup completed successfully!"
+    echo ""
+    echo "Next steps:"
+    echo "1. The library is installed in lib/$LIB_NAME"
+    echo "2. Header file is in lib/libyrs.h"
+    echo "3. Run 'nimble c -d:with_ycrdt tests/crdt_basic_tests.nim' to test with Y-CRDT"
+    echo "4. Set the LD_LIBRARY_PATH (Linux) or DYLD_LIBRARY_PATH (macOS) to include $(pwd)"
+else
+    echo "❌ Y-CRDT test failed"
+    exit 1
+fi
+
+# Cleanup
+rm test_ycrdt test_ycrdt.c
+
+cd ..
+
+echo "✅ Y-CRDT setup complete!"

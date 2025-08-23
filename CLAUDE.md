@@ -25,13 +25,16 @@ This library provides "Zen" objects - reactive data containers that can:
 - **`zens/`**: Core reactive object operations, contexts, initializers, validations
 - **`components/`**: Subscription management and type registry
 - **`utils/`**: Logging, statistics, type IDs, and miscellaneous utilities
+- **`crdt/`**: CRDT (Conflict-free Replicated Data Types) support with Y-CRDT integration
 
 ### Testing Structure
 - All tests are in `tests/` directory
 - Main test runner: `tests/tests.nim`
-- Individual test suites: `basic_tests.nim`, `threading_tests.nim`, `network_tests.nim`, `publish_tests.nim`, `object_tests.nim`, `memory_tests.nim`, `network_threading_tests.nim`, `error_handling_tests.nim`, `utils_tests.nim`, `validation_tests.nim`
+- Individual test suites: `basic_tests.nim`, `threading_tests.nim`, `network_tests.nim`, `publish_tests.nim`, `object_tests.nim`, `memory_tests.nim`, `network_threading_tests.nim`, `error_handling_tests.nim`, `utils_tests.nim`, `validation_tests.nim`, `crdt_basic_tests.nim`, `ycrdt_ffi_test.nim`
 - Additional files: `object_tests_types.nim` (type definitions for object tests)
 - Failing tests directory: `failing/` contains tests for edge cases and failure scenarios
+- **Test count**: Currently 75 tests across all suites
+- **Testing framework**: Uses `pkg/unittest2` consistently across all test files
 
 ## Development Commands
 
@@ -39,7 +42,7 @@ This library provides "Zen" objects - reactive data containers that can:
 ```bash
 nimble test
 ```
-This compiles and runs all test suites. Tests pass successfully with some warnings about unused imports.
+This compiles and runs all test suites. Tests pass successfully (75 tests total).
 
 ### Build Configuration
 - Uses Nim config in `tests/config.nims` with:
@@ -53,6 +56,7 @@ Key dependencies from `model_citizen.nimble`:
 - `nim >= 1.4.8`
 - `pretty`, `threading`, `chronicles`, `flatty`, `netty`, `supersnappy`
 - `nanoid.nim`, `metrics`
+- **CRDT support**: Y-CRDT library with C FFI bindings (libyrs)
 
 ## Key Features
 
@@ -70,6 +74,14 @@ Key dependencies from `model_citizen.nimble`:
 - Detailed change notifications with `ChangeKind` (Created, Added, Removed, Modified, Touched, Closed)
 - Reactive callbacks triggered on data modifications
 - Change propagation through object hierarchies
+
+### CRDT Support (Experimental)
+- **Conflict-free Replicated Data Types** for eventual consistency
+- Y-CRDT integration via C FFI with automatic binding generation using Futhark
+- Vector clock implementation for ordering and causality tracking
+- CRDT-enabled reactive objects: `CrdtZenValue`, `CrdtZenTable`, `CrdtZenSeq`, `CrdtZenSet`
+- Multiple sync modes: `FastLocal` (immediate local updates) and `WaitForSync` (wait for convergence)
+- Sync state tracking: `LocalOnly`, `Syncing`, `Converged`
 
 ### Memory Management
 - Reference counting with `CountedRef` for shared objects
@@ -105,6 +117,29 @@ var ctx2 = ZenContext.init(id = "thread2")
 ctx2.subscribe(ctx1)
 
 # Changes in ctx1 objects automatically sync to ctx2
+```
+
+### CRDT Usage (Experimental)
+```nim
+# Create CRDT-enabled reactive objects
+var ctx = ZenContext.init(id = "main")
+var crdt_value = CrdtZenValue[int].init(ctx, id = "player_score", mode = FastLocal)
+
+# Track CRDT changes with sync state
+crdt_value.track proc(changes: seq[CrdtChange[int]]) =
+  for change in changes:
+    echo "Value changed to: ", change.new_value
+    echo "Sync state: ", change.sync_state
+
+# Track sync state changes
+crdt_value.track_sync proc(state: SyncState) =
+  echo "Sync state changed to: ", state
+
+# Set value (triggers immediate callback in FastLocal mode)
+crdt_value.value = 42
+
+# Switch sync modes
+crdt_value.set_sync_mode(WaitForSync)
 ```
 
 ## Coding Conventions
@@ -166,22 +201,19 @@ if ?my_number:            # checks if != 0
 **Rule**: Always use `?` instead of manual nil checks, emptiness checks, or is_some calls.
 
 ### TypeName.init Convention
-All type initializers must follow the `TypeName.init()` pattern:
+All type initializers should follow the `TypeName.init()` pattern where possible:
 
 ```nim
-# Correct
+# Preferred for project types
 var ctx = ZenContext.init(id = "main")
-var table = ZenTable[string, int].init()
+var table = ZenTable[string, int].init(ctx)
 
-# Avoid
-var ctx = newZenContext(id = "main")  # Never use new prefix
+# Standard library types use their normal constructors
+var std_table = init_table[string, int]()
+var hash_set = init_hash_set[string]()
 ```
 
-**Rule**: If a stdlib type doesn't follow this pattern, create a helper template in `utils/misc.nim`:
-```nim
-template init*(_: type SomeStdlibType, args...): SomeStdlibType =
-  init_some_stdlib_type(args)
-```
+**Note**: The project provides helper templates in `utils/misc.nim` for some standard library types to enable uniform `.init()` syntax, but it's not required to create these for every stdlib type.
 
 ### Access Control Keywords
 The project uses custom access control through special keywords:
@@ -218,15 +250,102 @@ proc my_internal_operation() =
 - Some deprecation warnings exist (e.g., `newIdentNode` usage)
 - Project follows a modular architecture with clear separation of concerns
 
+## CRDT Integration Roadmap
+
+The CRDT support is currently experimental and located in `src/model_citizen/crdt/`. Future integration plans include:
+
+### Current State
+- Y-CRDT C library integration via Futhark-generated bindings (`ycrdt_futhark.nim`)
+- **COMPLETED**: CRDT support integrated into existing Zen types with `sync_mode` parameter
+- Basic CRDT types: `CrdtZenValue`, `CrdtZenTable`, `CrdtZenSeq`, `CrdtZenSet` (legacy, being phased out)
+- Vector clock implementation for causality tracking
+- Sync modes: `None` (traditional), `FastLocal` (immediate local), `WaitForSync` (convergence-based)
+- Test coverage with 11 CRDT-specific tests including integration tests
+
+### Current Integration Features
+- **ZenValue CRDT Support**: All Zen.init procedures now accept optional `sync_mode` parameter
+- **API Compatibility**: Existing ZenValue usage works unchanged (sync_mode defaults to None)
+- **Dual Mode Support**: FastLocal (immediate local updates) and WaitForSync (wait for convergence)
+- **Test Coverage**: Full integration testing validates API compatibility and CRDT modes
+- **Transparent Usage**: `ZenValue[int].init(sync_mode = FastLocal)` enables CRDT behavior
+
+### Usage Examples
+
+```nim
+# Traditional ZenValue (no CRDT)
+var regular = ZenValue[int].init(ctx = ctx, id = "regular")
+regular.value = 42
+
+# CRDT-enabled ZenValue with FastLocal mode
+var crdt_fast = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx, id = "fast")
+crdt_fast.value = 100  # Immediate local update, syncs in background
+
+# CRDT-enabled ZenValue with WaitForSync mode  
+var crdt_wait = ZenValue[int].init(sync_mode = WaitForSync, ctx = ctx, id = "wait")
+crdt_wait.value = 200  # Waits for convergence before completing
+
+# All three work with the same API
+assert regular.value == 42
+assert crdt_fast.value == 100  
+assert crdt_wait.value == 200
+```
+
+### Future Integration Goals
+- Full CRDT backend implementation for FastLocal and WaitForSync modes
+- Network synchronization integration with existing netty-based networking
+- Performance optimization for CRDT operations
+- Deprecation of separate CrdtZen types in favor of integrated approach
+
+### Dependencies
+- Y-CRDT library (libyrs) must be available in system library path or `../lib/`
+- Futhark for automatic C binding generation
+- Requires `-lyrs` linking and appropriate rpath settings
+
+## Helpful Development Information
+
+### Library Linking
+The CRDT functionality requires the Y-CRDT library. Test files include:
+```nim
+{.passL: "-L../lib -lyrs -Wl,-rpath,../lib".}
+```
+
+### Common Issues
+- **Library not found**: Ensure libyrs is available in `../lib/` or system paths
+- **Vector clock logic**: Uses total event count ordering, not true vector clock semantics
+- **Test framework**: All tests use `pkg/unittest2` for consistency
+
+### Build Notes
+- Tests compile with some benign linker warnings about duplicate rpath and library paths
+- Uses ORC memory management with threading enabled
+- Extensive conditional compilation with flags like `zen_trace`, `metrics`, `dump_zen_objects`
+
 ## Git Workflow Guidelines
+
+### Branch and PR Workflow
+- **Always work in feature branches** - never commit directly to main
+- Create descriptive branch names (e.g., `fix-vector-clock-logic`, `add-crdt-support`)
+- Use Pull Requests for all changes to main branch
+- Keep branches focused on specific features or fixes
 
 ### Work Tree Management
 - Always stay within the current work tree directory during operations
 - If working in a git work tree, fetch and ensure the current branch is up to date with `origin/main` before starting any task
-- When instructed to "push to main", this means push the current branch to `origin/main` using:
-  ```bash
-  git push origin <current-branch>:main
-  ```
+- Work trees allow multiple branches to be checked out simultaneously for parallel development
+
+### Testing Requirements
+- **CRITICAL**: `nimble test` MUST pass before pushing any commits
+- Exception: WIP commits for checkpointing are allowed but must be squashed before final push
+- If tests are failing, fix them before committing unless explicitly creating a WIP commit
+
+### WIP Commit Management
+- **WIP commits** are allowed for checkpointing work and must have commit messages starting with "wip"
+- Example: `wip: partial implementation of multi-context sync`
+- **WIP commits MUST NOT stay in history** - they are temporary checkpoints only
+- **When resuming work**: If the most recent commit starts with "wip", use `git reset --mixed HEAD~1` or `git reset --soft HEAD~1` to continue from the previous proper commit
+- WIP commits can be useful for:
+  - Saving progress during complex implementations
+  - Creating restore points when experimenting
+  - Sharing incomplete work for review
 
 ### Commit Guidelines
 - **ALWAYS use single-line commit messages** - no multi-line descriptions, bullet points, or "Generated with Claude Code" messages
@@ -238,8 +357,13 @@ proc my_internal_operation() =
 
 #### Examples
 ```bash
-# Correct
+# Correct - production commit
 git commit -m "Fix camelCase usage in deps.nim
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# Correct - WIP commit for checkpointing
+git commit -m "wip: partial CRDT sync implementation
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 
@@ -249,6 +373,24 @@ git commit -m "Fix camelCase usage and document coding conventions
 - Fix snake_case usage in deps.nim for stdlib functions  
 - Add comprehensive coding conventions section to CLAUDE.md
 🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+#### WIP Commit Workflow
+```bash
+# Creating a WIP checkpoint
+git add -A
+git commit -m "wip: implementing Y-CRDT document synchronization"
+
+# When resuming work, reset to continue from the last proper commit
+git reset --mixed HEAD~1  # Keeps changes staged
+# or
+git reset --soft HEAD~1   # Keeps changes in working directory
+
+# Complete the work and make a proper commit
+git add -A
+git commit -m "Implement Y-CRDT document synchronization between contexts
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
