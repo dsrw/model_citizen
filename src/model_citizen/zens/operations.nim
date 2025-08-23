@@ -3,8 +3,7 @@ import model_citizen/[core, components/private/tracking, types {.all.}]
 import ./[contexts, validations, private]
 
 # Import unified CRDT support  
-# TODO: CRDT temporarily disabled
-# import model_citizen/crdt/unified_crdt
+import model_citizen/crdt/unified_crdt
 
 proc untrack_all*[T, O](self: Zen[T, O]) =
   private_access ZenObject[T, O]
@@ -71,12 +70,11 @@ proc `value=`*[T](self: ZenValue[T], value: T, op_ctx = OperationContext()) =
   assert self.valid
   self.ctx.setup_op_ctx
   
-  # TODO: CRDT integration temporarily disabled to fix basic tests 
   # Check if this ZenValue has CRDT sync_mode enabled
-  # if self.sync_mode != SyncMode.Yolo:
-  #   # Delegate to unified CRDT implementation
-  #   self.set_crdt_value(value, op_ctx)
-  #   return
+  if self.sync_mode != SyncMode.Yolo:
+    # Delegate to unified CRDT implementation
+    self.set_crdt_value(value, op_ctx)
+    return
   
   # Regular Zen behavior for sync_mode = Yolo
   if self.tracked != value:

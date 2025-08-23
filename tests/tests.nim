@@ -1,9 +1,9 @@
-{.passL: "-Llib -lyrs -Wl,-rpath,lib".}
+{.passL: "-L../lib -lyrs -Wl,-rpath,../lib".}
 import
   model_citizen, basic_tests, threading_tests, network_tests, publish_tests,
   object_tests, utils_tests, validation_tests, error_handling_tests, memory_tests,
   crdt_basic_tests, network_threading_tests, ycrdt_ffi_test, zen_value_crdt_integration_test,
-  zen_seq_crdt_integration_test, crdt_multi_context_sync_test
+  simple_crdt_test, crdt_sync_demo
 
 Zen.bootstrap
 
@@ -20,5 +20,5 @@ crdt_basic_tests.run()
 network_threading_tests.run()
 ycrdt_ffi_test.run()
 zen_value_crdt_integration_test.run()
-zen_seq_crdt_integration_test.run()
-crdt_multi_context_sync_test.run()
+simple_crdt_test.run()
+crdt_sync_demo.run()

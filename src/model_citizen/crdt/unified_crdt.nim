@@ -4,6 +4,7 @@
 import std/[tables, monotimes, sets]
 import model_citizen/[types {.all.}, core]
 import model_citizen/zens/private  # For privileged access
+import model_citizen/components/private/tracking  # For mutate template
 import ./[crdt_types, ycrdt_futhark, document_coordinator]
 
 # Template for privileged access to CRDT internals
@@ -37,7 +38,9 @@ proc set_crdt_value*[T, O](zen: Zen[T, O], new_value: T, op_ctx = OperationConte
       if doc == nil:
         # Fallback to regular behavior if Y-CRDT fails
         if zen.tracked != new_value:
-          zen.tracked = new_value
+          let self = zen
+          mutate(op_ctx):
+            self.tracked = new_value
         return
       
       # Create Y-CRDT map for storing the value
@@ -45,7 +48,9 @@ proc set_crdt_value*[T, O](zen: Zen[T, O], new_value: T, op_ctx = OperationConte
       if map == nil:
         # Fallback if map creation fails
         if zen.tracked != new_value:
-          zen.tracked = new_value
+          let self = zen
+          mutate(op_ctx):
+            self.tracked = new_value
         return
       
       # Start transaction
@@ -53,7 +58,9 @@ proc set_crdt_value*[T, O](zen: Zen[T, O], new_value: T, op_ctx = OperationConte
       if txn == nil:
         # Fallback if transaction fails
         if zen.tracked != new_value:
-          zen.tracked = new_value
+          let self = zen
+          mutate(op_ctx):
+            self.tracked = new_value
         return
       
       try:
@@ -78,24 +85,30 @@ proc set_crdt_value*[T, O](zen: Zen[T, O], new_value: T, op_ctx = OperationConte
           else:
             # If type doesn't support string conversion, fallback to regular Zen
             if zen.tracked != new_value:
-              zen.tracked = new_value
+              let self = zen
+              mutate(op_ctx):
+                self.tracked = new_value
             ytransaction_commit(txn)
             return
         
         # Commit the transaction
         ytransaction_commit(txn)
         
-        # Update local tracked value based on sync mode
+        # Update local tracked value based on sync mode using regular Zen mutation
         case zen.sync_mode:
         of FastLocal:
-          # Update immediately for responsiveness
+          # Update immediately for responsiveness using proper mutation
           if zen.tracked != new_value:
-            zen.tracked = new_value
+            let self = zen
+            mutate(op_ctx):
+              self.tracked = new_value
         of WaitForSync:
           # For WaitForSync, we should read back from CRDT to ensure consistency
           # For now, update immediately - TODO: implement proper sync waiting
           if zen.tracked != new_value:
-            zen.tracked = new_value
+            let self = zen
+            mutate(op_ctx):
+              self.tracked = new_value
         of Yolo:
           # Should not reach here
           discard
@@ -104,7 +117,9 @@ proc set_crdt_value*[T, O](zen: Zen[T, O], new_value: T, op_ctx = OperationConte
         # Clean up transaction and fallback to regular behavior
         ytransaction_commit(txn)
         if zen.tracked != new_value:
-          zen.tracked = new_value
+          let self = zen
+          mutate(op_ctx):
+            self.tracked = new_value
 
 proc get_crdt_value*[T, O](zen: Zen[T, O]): T =
   ## Get value from CRDT synchronization (unified API)  
