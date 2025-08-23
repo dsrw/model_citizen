@@ -332,6 +332,21 @@ The CRDT functionality requires the Y-CRDT library. Test files include:
 - If working in a git work tree, fetch and ensure the current branch is up to date with `origin/main` before starting any task
 - Work trees allow multiple branches to be checked out simultaneously for parallel development
 
+### Testing Requirements
+- **CRITICAL**: `nimble test` MUST pass before pushing any commits
+- Exception: WIP commits for checkpointing are allowed but must be squashed before final push
+- If tests are failing, fix them before committing unless explicitly creating a WIP commit
+
+### WIP Commit Management
+- **WIP commits** are allowed for checkpointing work and must have commit messages starting with "wip"
+- Example: `wip: partial implementation of multi-context sync`
+- **WIP commits MUST NOT stay in history** - they are temporary checkpoints only
+- **When resuming work**: If the most recent commit starts with "wip", use `git reset --mixed HEAD~1` or `git reset --soft HEAD~1` to continue from the previous proper commit
+- WIP commits can be useful for:
+  - Saving progress during complex implementations
+  - Creating restore points when experimenting
+  - Sharing incomplete work for review
+
 ### Commit Guidelines
 - **ALWAYS use single-line commit messages** - no multi-line descriptions, bullet points, or "Generated with Claude Code" messages
 - **Simple format**: `Brief description of what was done`
@@ -342,8 +357,13 @@ The CRDT functionality requires the Y-CRDT library. Test files include:
 
 #### Examples
 ```bash
-# Correct
+# Correct - production commit
 git commit -m "Fix camelCase usage in deps.nim
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# Correct - WIP commit for checkpointing
+git commit -m "wip: partial CRDT sync implementation
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 
@@ -353,6 +373,24 @@ git commit -m "Fix camelCase usage and document coding conventions
 - Fix snake_case usage in deps.nim for stdlib functions  
 - Add comprehensive coding conventions section to CLAUDE.md
 🤖 Generated with [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+#### WIP Commit Workflow
+```bash
+# Creating a WIP checkpoint
+git add -A
+git commit -m "wip: implementing Y-CRDT document synchronization"
+
+# When resuming work, reset to continue from the last proper commit
+git reset --mixed HEAD~1  # Keeps changes staged
+# or
+git reset --soft HEAD~1   # Keeps changes in working directory
+
+# Complete the work and make a proper commit
+git add -A
+git commit -m "Implement Y-CRDT document synchronization between contexts
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
