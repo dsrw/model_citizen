@@ -73,10 +73,13 @@ proc extract_state_vector*(doc: ptr YDoc_typedef): string =
   when defined(with_ycrdt):
     let txn = ydoc_read_transaction(doc)
     if txn != nil:
-      defer: ytransaction_free(txn)
-      let state_vector = ydoc_encode_state_vector(doc, txn)
-      if state_vector.len > 0:
-        result = encode(cast[string](state_vector))
+      # Note: Read transactions don't need explicit cleanup in Y-CRDT
+      var len: uint32
+      let state_vector_data = ytransaction_state_vector_v1(txn, addr len)
+      if len > 0 and state_vector_data != nil:
+        var state_vector = newString(len)
+        copyMem(addr state_vector[0], state_vector_data, len)
+        result = encode(state_vector)
       else:
         result = ""
     else:
@@ -94,10 +97,13 @@ proc create_update_from_state*(doc: ptr YDoc_typedef, remote_vector: string): st
       let decoded_vector = decode(remote_vector)
       let txn = ydoc_read_transaction(doc)
       if txn != nil:
-        defer: ytransaction_free(txn)
-        let update_data = ydoc_encode_state_as_update(doc, txn, decoded_vector.cstring)
-        if update_data.len > 0:
-          result = encode(cast[string](update_data))
+        # Note: Read transactions don't need explicit cleanup in Y-CRDT
+        var update_len: uint32
+        let update_data = ytransaction_state_diff_v1(txn, decoded_vector.cstring, decoded_vector.len.uint32, addr update_len)
+        if update_len > 0 and update_data != nil:
+          var update = newString(update_len)
+          copyMem(addr update[0], update_data, update_len)
+          result = encode(update)
         else:
           result = ""
       else:
@@ -118,8 +124,8 @@ proc apply_crdt_update*(doc: ptr YDoc_typedef, update_data: string): bool =
       let txn = ydoc_write_transaction_simple(doc)
       if txn != nil:
         defer: ytransaction_commit(txn)
-        ydoc_apply_update(doc, txn, decoded_update.cstring, decoded_update.len.uint32)
-        result = true
+        let apply_result = ytransaction_apply(txn, decoded_update.cstring, decoded_update.len.uint32)
+        result = apply_result != 0
       else:
         result = false
     except:

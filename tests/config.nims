@@ -16,6 +16,8 @@
   "zen_trace"
 --define:
   "metrics"
+--define:
+  "with_ycrdt"
 
 # --define:"dump_zen_objects"
 
