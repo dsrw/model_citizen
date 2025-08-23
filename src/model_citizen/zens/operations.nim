@@ -16,7 +16,7 @@ proc untrack_all*[T, O](self: Zen[T, O]) =
 
   for zid in self.bound_zids:
     if zid in self.ctx.close_procs:
-      self.ctx.close_procs[zid]()
+      tables.`[]`(self.ctx.close_procs, zid)()
       self.ctx.close_procs.del(zid)
 
   self.changed_callbacks.clear
@@ -26,7 +26,7 @@ proc untrack*(ctx: ZenContext, zid: ZID) =
 
   # :(
   if zid in ctx.close_procs:
-    ctx.close_procs[zid]()
+    tables.`[]`(ctx.close_procs, zid)()
     debug "deleting close proc", zid
     ctx.close_procs.del(zid)
   else:

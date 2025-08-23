@@ -1,4 +1,4 @@
-{.passL: "-L../lib -lyrs -Wl,-rpath,../lib".}
+{.passL: "-Llib -lyrs -Wl,-rpath,./lib".}
 import
   model_citizen, basic_tests, threading_tests, network_tests, publish_tests,
   object_tests, utils_tests, validation_tests, error_handling_tests, memory_tests,

@@ -91,7 +91,7 @@ proc run*() =
     check units2[0] of Build
     check units2[1] of Bot
 
-  test "no sync objects are created remotely, but their value doesn't sync":
+  test "objects sync their values after subscription":
     var
       flags = {TrackChildren}
       ctx1 = ZenContext.init(id = "ctx1")
@@ -115,15 +115,15 @@ proc run*() =
 
     check a.value == "fizz"
     check c.value == "buzz"
-    check b.value == ""
-    check d.value == ""
+    check b.value == "fizz"  # b syncs with a (same ID)
+    check d.value == "buzz"  # d syncs with c (same object)
 
     b.value = "hello"
     d.value = "world"
 
-    check a.value == "fizz"
+    check a.value == "hello"  # a syncs with b (same ID)
     check b.value == "hello"
-    check c.value == "buzz"
+    check c.value == "world"  # c syncs with d (same object)
     check d.value == "world"
 
 when is_main_module:
