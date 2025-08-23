@@ -4,7 +4,7 @@ import model_citizen
 proc run*() =
   suite "ZenValue CRDT Integration":
     setup:
-      var ctx = ZenContext.init(id = "test_ctx")
+      var ctx = ZenContext.init(id = "test_ctx", default_sync_mode = SyncMode.Yolo)
     
     teardown:
       ctx.close()
@@ -15,7 +15,7 @@ proc run*() =
       var fast_local = ZenValue[int].init(sync_mode = FastLocal, ctx = ctx, id = "fast")  
       var wait_sync = ZenValue[int].init(sync_mode = WaitForSync, ctx = ctx, id = "wait")
       
-      check regular.sync_mode == SyncMode.Yolo
+      check regular.sync_mode == ContextDefault  # Uses context default
       check fast_local.sync_mode == FastLocal
       check wait_sync.sync_mode == WaitForSync
     
@@ -38,8 +38,8 @@ proc run*() =
       var zen_str = ZenValue[string].init(ctx = ctx)
       
       # Default sync_mode should be Yolo for backward compatibility
-      check zen_int.sync_mode == SyncMode.Yolo
-      check zen_str.sync_mode == SyncMode.Yolo
+      check zen_int.sync_mode == ContextDefault  # Uses context default
+      check zen_str.sync_mode == ContextDefault  # Uses context default
       
       # Basic operations
       zen_int.value = 42
@@ -51,7 +51,7 @@ proc run*() =
     test "Yolo is the default mode for backward compatibility":
       # Test that Yolo is the default for backward compatibility
       var crdt_zen = ZenValue[int].init(ctx = ctx)
-      check crdt_zen.sync_mode == Yolo
+      check crdt_zen.sync_mode == ContextDefault  # Uses context default
       
       # Should work with basic operations
       crdt_zen.value = 100
