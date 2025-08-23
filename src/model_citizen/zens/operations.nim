@@ -97,10 +97,17 @@ proc value*[T, O](self: Zen[T, O]): T =
   # Regular Zen behavior - unified API uses same value getter for now
   self.tracked
 
-# Specific getter for ZenValue to match the setter
+# Specific getter for ZenValue to handle CRDT sync modes
 proc value*[T](self: ZenValue[T]): T =
   privileged
   assert self.valid
+  
+  # Check if this ZenValue has CRDT sync_mode enabled
+  if self.sync_mode != SyncMode.Yolo:
+    # Try to get value from CRDT backend first
+    return self.get_crdt_value()
+  
+  # Regular Zen behavior for sync_mode = Yolo
   self.tracked
 
 proc `[]`*[K, V](self: Zen[Table[K, V], Pair[K, V]], index: K): V =
