@@ -2,7 +2,7 @@
 import pkg/unittest2
 import std/[times, tables]
 import model_citizen/[core, types, components/subscriptions]
-import model_citizen/zens/[contexts, initializers]
+import model_citizen/zens/[contexts, initializers, operations]
 import model_citizen/crdt/[crdt_types, unified_crdt]
 
 proc run*() =
