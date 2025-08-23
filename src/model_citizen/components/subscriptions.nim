@@ -11,7 +11,10 @@ import
 import model_citizen/components/[private/global_state]
 
 import ./type_registry
-# import model_citizen/crdt/sync_protocol  # Temporarily disabled to avoid circular dependencies
+import model_citizen/crdt/sync_protocol
+
+# Forward declaration for CRDT message sending
+proc send_crdt_message_impl*(ctx: ZenContext, target_ctx_id: string, message: CrdtSyncMessage) {.gcsafe.}
 
 var flatty_ctx {.threadvar.}: ZenContext
 
@@ -271,9 +274,12 @@ proc add_subscriber*(
   debug "adding subscriber", sub
   self.subscribers.add sub
   
-  # Initialize CRDT sync for new subscriber (temporarily disabled)
-  # let manager = get_crdt_sync_manager(self)
-  # on_context_subscribed(manager, sub.ctx_id)
+  # Initialize CRDT sync for new subscriber
+  let manager = get_crdt_sync_manager(self)
+  # Set up the message sending callback
+  if manager.send_proc == nil:
+    manager.send_proc = send_crdt_message_impl
+  on_context_subscribed(manager, sub.ctx_id)
   
   for id in self.objects.keys.to_seq.reversed:
     if id notin remote_objects or push_all:
@@ -287,9 +293,9 @@ proc add_subscriber*(
         from_ctx = self.id, to_ctx = sub.ctx_id, zen_id = id
 
 proc unsubscribe*(self: ZenContext, sub: Subscription) =
-  # Clean up CRDT sync for unsubscribing context (temporarily disabled)
-  # let manager = get_crdt_sync_manager(self)
-  # on_context_unsubscribed(manager, sub.ctx_id)
+  # Clean up CRDT sync for unsubscribing context
+  let manager = get_crdt_sync_manager(self)
+  on_context_unsubscribed(manager, sub.ctx_id)
   
   if sub.kind == Remote:
     self.reactor.disconnect(sub.connection)
@@ -438,11 +444,10 @@ proc process_message(self: ZenContext, msg: Message) =
       )
       # :(
   elif msg.kind == CrdtSync:
-    # Handle CRDT synchronization message (temporarily disabled)
-    # let manager = get_crdt_sync_manager(self)
-    # let crdt_msg = msg.obj.from_flatty(CrdtSyncMessage)
-    # handle_crdt_sync_message(manager, msg.source, crdt_msg)
-    discard
+    # Handle CRDT synchronization message
+    let manager = get_crdt_sync_manager(self)
+    let crdt_msg = msg.obj.from_flatty(CrdtSyncMessage)
+    handle_crdt_sync_message(manager, msg.source, crdt_msg)
   elif msg.kind != Blank:
     if msg.object_id notin self:
       # :( this should throw an error
@@ -719,3 +724,15 @@ proc to_flatty*(s: var string, x: seq[proc() {.gcsafe.}]) =
 proc from_flatty*(s: string, i: var int, x: var seq[proc() {.gcsafe.}]) =
   # Don't deserialize procedure sequences - they'll be empty
   x = @[]
+
+# CRDT Message Sending Implementation
+# This provides the actual implementation for send_crdt_message to avoid circular dependencies
+proc send_crdt_message_impl*(ctx: ZenContext, target_ctx_id: string, message: CrdtSyncMessage) {.gcsafe.} =
+  ## Actual implementation of CRDT message sending through subscription system
+  let msg = Message(kind: CrdtSync, obj: message.to_flatty(), source: ctx.id)
+  
+  # Find the subscription for the target context and send the message
+  for sub in ctx.subscribers:
+    if sub.ctx_id == target_ctx_id:
+      ctx.send(sub, msg)
+      break

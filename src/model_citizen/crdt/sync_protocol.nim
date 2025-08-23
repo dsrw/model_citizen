@@ -6,7 +6,7 @@
 
 import std/[tables, sets, json, base64, times, strformat]
 import pkg/flatty
-import model_citizen/[core, types]
+import model_citizen/[core, types {.all.}]
 import ./[crdt_types, document_coordinator, ycrdt_futhark]
 
 type
@@ -37,6 +37,7 @@ type
     active_syncs*: Table[string, CrdtSyncState]  ## Context ID -> sync state
     pending_requests*: Table[DocumentId, MonoTime]  ## Pending document requests
     last_sync_vectors*: Table[DocumentId, string]   ## Last known state vectors
+    send_proc*: proc(ctx: ZenContext, target_ctx_id: string, message: CrdtSyncMessage) {.gcsafe.}  ## Message sending callback
 
   CrdtSyncState* = object
     ## State of CRDT synchronization with a remote context
@@ -265,11 +266,9 @@ proc get_document_sync_status*(ctx: ZenContext, doc_id: DocumentId): string =
 # Implementation of forward-declared procedures
 proc send_crdt_message*(ctx: ZenContext, target_ctx_id: string, message: CrdtSyncMessage) {.gcsafe.} =
   ## Send CRDT message through existing subscription system
-  # This is a stub for now - the actual implementation will be connected
-  # by the subscriptions system to avoid circular dependencies
-  
-  # The message would be serialized and sent like this:
-  # let msg = Message(kind: CrdtSync, obj: message.to_flatty(), source: ctx.id)
-  # ctx.send(target_subscription, msg)
-  
-  discard
+  let manager = get_crdt_sync_manager(ctx)
+  if manager.send_proc != nil:
+    manager.send_proc(ctx, target_ctx_id, message)
+  else:
+    # Fallback if no send_proc is set (shouldn't happen in normal operation)
+    discard
