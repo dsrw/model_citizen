@@ -7,8 +7,8 @@ src_dir = "src"
 requires(
   "nim >= 1.4.8", "https://github.com/treeform/pretty 0.2.0", "threading",
   "chronicles", "flatty", "netty", "supersnappy", "unittest2",
-  "https://github.com/dsrw/nanoid.nim 0.2.1", "metrics#51f1227",
-  "futhark"
+  "https://github.com/dsrw/nanoid.nim 0.2.1", "metrics#51f1227"
+  # TODO: "futhark" - temporarily disabled while CRDT is disabled to fix macOS CI
 )
 
 task build_ycrdt, "Build Y-CRDT library":
